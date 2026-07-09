@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datascape:schemas:attendance-corrected:v1",
+  "title": "Attendance Corrected",
+  "type": "object",
+  "required": [
+    "attendance_id",
+    "previous_status_code",
+    "new_status_code",
+    "reason_code",
+    "corrected_at"
+  ],
+  "properties": {
+    "attendance_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previous_status_code": {
+      "type": "string"
+    },
+    "new_status_code": {
+      "type": "string"
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "corrected_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

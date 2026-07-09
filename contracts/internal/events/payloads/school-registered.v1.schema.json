@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datascape:schemas:school-registered:v1",
+  "title": "School Registered",
+  "type": "object",
+  "required": [
+    "school_id",
+    "school_code",
+    "school_name",
+    "district_id",
+    "school_type",
+    "registered_at"
+  ],
+  "properties": {
+    "school_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "school_code": {
+      "type": "string"
+    },
+    "school_name": {
+      "type": "string"
+    },
+    "district_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "school_type": {
+      "type": "string"
+    },
+    "registered_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

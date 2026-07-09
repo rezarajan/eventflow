@@ -1,0 +1,28 @@
+profile: datascape.s3.compatibility.v1
+standard: S3-compatible object API
+purpose: Object storage boundary for raw extracts, PDFs, Iceberg data files, manifests, and checksums.
+required_operations:
+  - CreateBucket
+  - HeadBucket
+  - PutObject
+  - GetObject
+  - HeadObject
+  - ListObjectsV2
+  - DeleteObject
+required_object_metadata:
+  - content-type
+  - content-length
+  - etag
+  - checksum-sha256
+  - source-system
+  - dataset-name
+  - run-id
+compatibility_rules:
+  - Object keys must be deterministic for reproducible runs.
+  - Object metadata must not contain sensitive values.
+  - Object writes must record checksums for auditability.
+excluded_for_increment_1:
+  - multipart upload
+  - object locking
+  - bucket lifecycle policies
+  - presigned URLs

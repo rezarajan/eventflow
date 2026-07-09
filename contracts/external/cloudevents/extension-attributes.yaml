@@ -1,0 +1,17 @@
+profile: datascape.cloudevents.extensions.v1
+extensions:
+  datasettier:
+    type: string
+    allowed_values: [source, raw, bronze, silver, gold, mart]
+  correlationid:
+    type: string
+    format: uuid
+  causationid:
+    type: string
+    format: uuid
+  runid:
+    type: string
+    format: uuid
+  tenant:
+    type: string
+    default: datascape-local

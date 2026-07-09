@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:datascape:schemas:generator-manifest:v1",
+  "title": "Generator Manifest V1",
+  "type": "object",
+  "required": [
+    "run_id",
+    "seed",
+    "created_at",
+    "datasets"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "record_count"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "record_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "object_uri": {
+            "type": "string"
+          },
+          "checksum_sha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

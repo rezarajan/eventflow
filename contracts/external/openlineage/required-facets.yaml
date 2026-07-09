@@ -1,0 +1,24 @@
+profile: datascape.openlineage.facets.v1
+standard: OpenLineage facets
+required_facets:
+  run:
+    - nominalTime
+    - processing_engine
+  job:
+    - sourceCodeLocation
+  dataset:
+    - schema
+    - dataSource
+  input_dataset:
+    - inputStatistics
+  output_dataset:
+    - outputStatistics
+    - dataQualityAssertions
+recommended_facets:
+  - columnLineage
+  - parent
+  - errorMessage
+custom_facet_policy:
+  allowed: true
+  condition: Only when standard facets cannot express required synthetic-domain metadata.
+  naming: datascape.<name>.v1

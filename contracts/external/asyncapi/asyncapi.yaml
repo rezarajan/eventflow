@@ -1,0 +1,122 @@
+asyncapi: 3.1.0
+info:
+  title: Datascape School Domain Events
+  version: 0.1.0
+  description: Future event-bus channel contract for CloudEvents-based synthetic school-domain events.
+defaultContentType: application/cloudevents+json
+servers:
+  local-redpanda:
+    host: localhost:9092
+    protocol: kafka
+    description: Future local Redpanda broker. Not required in the standards-only increment.
+channels:
+  school.events.v1:
+    address: school.events.v1
+    messages:
+      SchoolRegistered:
+        $ref: '#/components/messages/SchoolRegistered'
+      ClassCreated:
+        $ref: '#/components/messages/ClassCreated'
+  student.events.v1:
+    address: student.events.v1
+    messages:
+      StudentEnrolled:
+        $ref: '#/components/messages/StudentEnrolled'
+  attendance.events.v1:
+    address: attendance.events.v1
+    messages:
+      AttendanceSubmitted:
+        $ref: '#/components/messages/AttendanceSubmitted'
+      AttendanceCorrected:
+        $ref: '#/components/messages/AttendanceCorrected'
+  assessment.events.v1:
+    address: assessment.events.v1
+    messages:
+      ExamPaperUploaded:
+        $ref: '#/components/messages/ExamPaperUploaded'
+      GradeRecorded:
+        $ref: '#/components/messages/GradeRecorded'
+  document.events.v1:
+    address: document.events.v1
+    messages:
+      DocumentUploaded:
+        $ref: '#/components/messages/DocumentUploaded'
+  lineage.events.v1:
+    address: lineage.events.v1
+    messages:
+      OpenLineageRunEventPublished:
+        $ref: '#/components/messages/OpenLineageRunEventPublished'
+operations:
+  publishSchoolEvents:
+    action: send
+    channel:
+      $ref: '#/channels/school.events.v1'
+  publishStudentEvents:
+    action: send
+    channel:
+      $ref: '#/channels/student.events.v1'
+  publishAttendanceEvents:
+    action: send
+    channel:
+      $ref: '#/channels/attendance.events.v1'
+  publishAssessmentEvents:
+    action: send
+    channel:
+      $ref: '#/channels/assessment.events.v1'
+  publishDocumentEvents:
+    action: send
+    channel:
+      $ref: '#/channels/document.events.v1'
+  publishLineageEvents:
+    action: send
+    channel:
+      $ref: '#/channels/lineage.events.v1'
+components:
+  messages:
+    SchoolRegistered:
+      name: SchoolRegistered
+      title: School registered
+      payload:
+        $ref: '../../internal/events/payloads/school-registered.v1.schema.json'
+    ClassCreated:
+      name: ClassCreated
+      title: Class created
+      payload:
+        $ref: '../../internal/events/payloads/class-created.v1.schema.json'
+    StudentEnrolled:
+      name: StudentEnrolled
+      title: Student enrolled
+      payload:
+        $ref: '../../internal/events/payloads/student-enrolled.v1.schema.json'
+    AttendanceSubmitted:
+      name: AttendanceSubmitted
+      title: Attendance submitted
+      payload:
+        $ref: '../../internal/events/payloads/attendance-submitted.v1.schema.json'
+    AttendanceCorrected:
+      name: AttendanceCorrected
+      title: Attendance corrected
+      payload:
+        $ref: '../../internal/events/payloads/attendance-corrected.v1.schema.json'
+    ExamPaperUploaded:
+      name: ExamPaperUploaded
+      title: Exam paper uploaded
+      payload:
+        $ref: '../../internal/events/payloads/exam-paper-uploaded.v1.schema.json'
+    GradeRecorded:
+      name: GradeRecorded
+      title: Grade recorded
+      payload:
+        $ref: '../../internal/events/payloads/grade-recorded.v1.schema.json'
+    DocumentUploaded:
+      name: DocumentUploaded
+      title: Text document uploaded
+      payload:
+        $ref: '../../internal/events/payloads/document-uploaded.v1.schema.json'
+    OpenLineageRunEventPublished:
+      name: OpenLineageRunEventPublished
+      title: OpenLineage run event published
+      payload:
+        type: object
+        additionalProperties: true
+        description: OpenLineage RunEvent payload. This channel is a future transport path, not a custom lineage model.

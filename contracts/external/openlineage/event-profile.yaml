@@ -1,0 +1,36 @@
+profile: datascape.openlineage.event.v1
+standard: OpenLineage
+purpose: Lineage event boundary for source generation, ingestion, transformation, quality, and serving.
+required_event_types:
+  - START
+  - COMPLETE
+  - FAIL
+required_entities:
+  - run
+  - job
+  - inputs
+  - outputs
+required_run_fields:
+  - runId
+  - facets
+required_job_fields:
+  - namespace
+  - name
+  - facets
+required_dataset_fields:
+  - namespace
+  - name
+  - facets
+required_coverage:
+  - source_generation_run
+  - raw_object_write
+  - pdf_object_write
+  - bronze_table_creation
+  - silver_table_creation
+  - gold_table_creation
+  - quality_assertion
+  - final_analytics_dataset
+compatibility_rules:
+  - Pipelines must emit OpenLineage-compatible events, not backend-specific lineage events.
+  - Marquez-specific APIs must not be called directly by pipeline logic.
+  - Future Redpanda/Kafka integration must preserve the OpenLineage event model.
