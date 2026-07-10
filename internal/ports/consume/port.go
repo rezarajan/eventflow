@@ -33,6 +33,11 @@ type BatchEventHandler interface {
 	HandleBatch(ctx context.Context, events []cloudevents.Event) error
 }
 
+// OutputDatasetProvider exposes precise output datasets for lineage.
+type OutputDatasetProvider interface {
+	OutputDatasets() []lineage.Dataset
+}
+
 // Factory creates named event handlers from configuration.
 type Factory interface {
 	Names() []string

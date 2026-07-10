@@ -60,18 +60,33 @@ func TestServiceRequiresHandlers(t *testing.T) {
 }
 
 // TestServiceEmitsHandlerLineageWithoutMutatingCloudEvents verifies projector lineage is separate metadata.
-func TestServiceEmitsHandlerLineageWithoutMutatingCloudEvents(t *testing.T) {
+func TestServiceEmitsConsumeAndHandlerLineageWithoutMutatingCloudEvents(t *testing.T) {
 	evt := consumeTestEvent(t, "1", "document.uploaded.v1")
 	before := string(evt.Data())
 	source := &fakeSource{events: []cloudevents.Event{evt}}
-	handler := &fakeBatchHandler{fakeHandler: fakeHandler{name: "objects"}}
+	handler := &fakeBatchHandler{fakeHandler: fakeHandler{name: "objects", outputs: []lineage.Dataset{{Namespace: "file://objects", Name: "documents/"}}}}
 	emitter := &fakeLineageEmitter{}
 	service := Service{Source: source, Handlers: []port.EventHandler{handler}, Lineage: emitter, BatchSize: 1, MaxEvents: 1, Now: fixedConsumeTime}
 	if _, err := service.Run(context.Background(), "consume-test"); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if len(emitter.events) != 2 || emitter.events[0].EventType != "START" || emitter.events[1].EventType != "COMPLETE" {
+	if len(emitter.events) != 4 {
 		t.Fatalf("unexpected lineage events: %+v", emitter.events)
+	}
+	consumeStart := emitter.events[0]
+	if consumeStart.Job.Name != "eventflow-consume" || consumeStart.Inputs[0].Name != "events" || consumeStart.Outputs[0].Name != "documents/" {
+		t.Fatalf("unexpected consume lineage event: %+v", consumeStart)
+	}
+	handlerStart := emitter.events[1]
+	parent, ok := handlerStart.Run.Facets["parent"].(lineage.ParentRunFacet)
+	if !ok || parent.Run.RunID != "consume-test" || parent.Job.Name != "eventflow-consume" {
+		t.Fatalf("unexpected parent facet: %+v", handlerStart.Run.Facets)
+	}
+	if handlerStart.Job.Name != "eventflow-objects-projector" || handlerStart.Outputs[0].Name != "documents/" {
+		t.Fatalf("unexpected handler lineage event: %+v", handlerStart)
+	}
+	if emitter.events[2].EventType != "COMPLETE" || emitter.events[3].EventType != "COMPLETE" {
+		t.Fatalf("unexpected lineage lifecycle events: %+v", emitter.events)
 	}
 	if string(evt.Data()) != before {
 		t.Fatalf("CloudEvent data mutated: before=%s after=%s", before, evt.Data())
@@ -125,9 +140,10 @@ func (s *fakeSource) Close(ctx context.Context) error {
 
 // fakeHandler records one-by-one handled events.
 type fakeHandler struct {
-	name   string
-	events []cloudevents.Event
-	closed bool
+	name    string
+	events  []cloudevents.Event
+	outputs []lineage.Dataset
+	closed  bool
 }
 
 // Name returns the fake handler name.
@@ -138,6 +154,11 @@ func (h *fakeHandler) Name() string {
 // Dataset returns the fake handler dataset.
 func (h *fakeHandler) Dataset() lineage.Dataset {
 	return lineage.Dataset{Namespace: "fake", Name: h.name}
+}
+
+// OutputDatasets returns precise fake output datasets when configured.
+func (h *fakeHandler) OutputDatasets() []lineage.Dataset {
+	return append([]lineage.Dataset(nil), h.outputs...)
 }
 
 // Open records handler opening.

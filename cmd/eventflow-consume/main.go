@@ -90,21 +90,9 @@ Flags:
 	if err != nil {
 		return err
 	}
-	inputs := []lineage.Dataset{source.Dataset()}
-	outputs := handlerDatasets(handlers)
-	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "eventflow-consume", *runID, inputs, outputs, nil, time.Now)); err != nil {
-		return err
-	}
 	service := consume.Service{Source: source, Handlers: handlers, Logger: logger, Lineage: emitter, LineageNS: lineageConfig.Namespace, BatchSize: *batchSize, MaxEvents: *maxEvents}
-	_, runErr := service.Run(ctx, *runID)
-	eventType := "COMPLETE"
-	if runErr != nil {
-		eventType = "FAIL"
-	}
-	if err := emitter.Emit(ctx, lineage.NewEvent(eventType, lineageConfig.Namespace, "eventflow-consume", *runID, inputs, outputs, runErr, time.Now)); err != nil {
-		return err
-	}
-	return runErr
+	_, err = service.Run(ctx, *runID)
+	return err
 }
 
 // createSource creates the configured event source.
@@ -136,15 +124,6 @@ func createHandlers(factory port.Factory, handlerList string) ([]port.EventHandl
 		return nil, fmt.Errorf("at least one handler must be configured")
 	}
 	return handlers, nil
-}
-
-// handlerDatasets returns stable datasets for configured handlers.
-func handlerDatasets(handlers []port.EventHandler) []lineage.Dataset {
-	datasets := make([]lineage.Dataset, 0, len(handlers))
-	for _, handler := range handlers {
-		datasets = append(datasets, handler.Dataset())
-	}
-	return datasets
 }
 
 // lineageFromEnv constructs the configured lineage emitter and config.

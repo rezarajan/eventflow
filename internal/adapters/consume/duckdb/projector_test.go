@@ -3,6 +3,7 @@ package duckdb
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,6 +51,23 @@ func TestProjectorStoresUnknownEventsOnlyInRawTable(t *testing.T) {
 	assertCount(t, db, "_raw_events", 1)
 	if err := projector.Close(ctx); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
+func TestOutputDatasetsIncludesRawAndProjectedDuckDBTables(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "eventflow.duckdb")
+	projector := New(Config{Path: path})
+	projector.registry = duckdbTestRegistry(t)
+
+	datasets := projector.OutputDatasets()
+	if len(datasets) != 2 {
+		t.Fatalf("unexpected datasets: %+v", datasets)
+	}
+	if datasets[0].Namespace != "duckdb://"+filepath.ToSlash(path) || datasets[0].Name != "_raw_events" {
+		t.Fatalf("unexpected raw dataset: %+v", datasets[0])
+	}
+	if datasets[1].Name != "attendance" {
+		t.Fatalf("unexpected projected dataset: %+v", datasets[1])
 	}
 }
 

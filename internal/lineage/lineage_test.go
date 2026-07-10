@@ -17,6 +17,29 @@ func TestRedpandaDatasetUsesStableBrokerAndTopic(t *testing.T) {
 	}
 }
 
+// TestDuckDBDatasetUsesAbsolutePathAndTable verifies DuckDB sink lineage is inspectable.
+func TestDuckDBDatasetUsesAbsolutePathAndTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "eventflow.duckdb")
+	got := DuckDBDataset(path, "_raw_events")
+	if got.Namespace != "duckdb://"+filepath.ToSlash(path) || got.Name != "_raw_events" {
+		t.Fatalf("unexpected dataset: %+v", got)
+	}
+}
+
+// TestWithParentAddsOpenLineageParentFacet verifies child runs are linked to their orchestrator.
+func TestWithParentAddsOpenLineageParentFacet(t *testing.T) {
+	event := NewEvent("START", "eventflow", "eventflow-duckdb-projector", "child-run", nil, nil, nil, fixedLineageTime)
+	event = WithParent(event, Job{Namespace: "eventflow", Name: "eventflow-consume"}, "parent-run")
+
+	parent, ok := event.Run.Facets["parent"].(ParentRunFacet)
+	if !ok {
+		t.Fatalf("parent facet missing: %+v", event.Run.Facets)
+	}
+	if parent.Run.RunID != "parent-run" || parent.Job.Name != "eventflow-consume" {
+		t.Fatalf("unexpected parent facet: %+v", parent)
+	}
+}
+
 // TestFileEmitterWritesNDJSON verifies file lineage output writes one JSON event per line.
 func TestFileEmitterWritesNDJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "openlineage.ndjson")

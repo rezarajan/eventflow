@@ -42,7 +42,17 @@ func (p *Projector) Name() string {
 
 // Dataset returns the stable DuckDB dataset boundary.
 func (p *Projector) Dataset() lineage.Dataset {
-	return lineage.Dataset{Namespace: "duckdb://" + filepath.ToSlash(filepath.Clean(p.config.Path)), Name: "tables/"}
+	return lineage.DuckDBDataset(p.config.Path, "tables/")
+}
+
+// OutputDatasets returns stable DuckDB table datasets written by this projector.
+func (p *Projector) OutputDatasets() []lineage.Dataset {
+	tables := append([]string{"_raw_events"}, p.catalogTables()...)
+	datasets := make([]lineage.Dataset, 0, len(tables))
+	for _, table := range tables {
+		datasets = append(datasets, lineage.DuckDBDataset(p.config.Path, table))
+	}
+	return datasets
 }
 
 // Open initializes the DuckDB database and required tables.

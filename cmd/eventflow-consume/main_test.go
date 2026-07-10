@@ -39,14 +39,6 @@ func TestCreateSourceRejectsUnknownSource(t *testing.T) {
 	}
 }
 
-// TestHandlerDatasetsReturnsConfiguredHandlerDatasets verifies consume output lineage uses handler datasets.
-func TestHandlerDatasetsReturnsConfiguredHandlerDatasets(t *testing.T) {
-	datasets := handlerDatasets([]port.EventHandler{&fakeHandler{name: "jsonl"}, &fakeHandler{name: "objects"}})
-	if len(datasets) != 2 || datasets[0].Name != "jsonl" || datasets[1].Name != "objects" {
-		t.Fatalf("unexpected handler datasets: %+v", datasets)
-	}
-}
-
 // fakeConsumeFactory is an in-memory handler factory for command tests.
 type fakeConsumeFactory struct {
 	handlers map[string]port.EventHandler

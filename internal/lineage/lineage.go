@@ -21,13 +21,22 @@ type Dataset struct {
 
 // Run identifies one executable run.
 type Run struct {
-	RunID string `json:"runId"`
+	RunID  string         `json:"runId"`
+	Facets map[string]any `json:"facets,omitempty"`
 }
 
 // Job identifies one executable job.
 type Job struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
+}
+
+// ParentRunFacet links a child run to the run that orchestrated it.
+type ParentRunFacet struct {
+	Producer  string `json:"_producer"`
+	SchemaURL string `json:"_schemaURL"`
+	Run       Run    `json:"run"`
+	Job       Job    `json:"job"`
 }
 
 // Event is the local OpenLineage-compatible run event shape.
@@ -167,6 +176,29 @@ func WithProducer(event Event, producer string, schemaURL string) Event {
 	}
 	event.Producer = producer
 	event.SchemaURL = schemaURL
+	if event.Run.Facets != nil {
+		if parent, ok := event.Run.Facets["parent"].(ParentRunFacet); ok {
+			parent.Producer = producer
+			event.Run.Facets["parent"] = parent
+		}
+	}
+	return event
+}
+
+// WithParent returns a copy of the event linked to a parent OpenLineage run.
+func WithParent(event Event, parentJob Job, parentRunID string) Event {
+	if parentRunID == "" || parentJob.Name == "" {
+		return event
+	}
+	if event.Run.Facets == nil {
+		event.Run.Facets = map[string]any{}
+	}
+	event.Run.Facets["parent"] = ParentRunFacet{
+		Producer:  DefaultProducer,
+		SchemaURL: "https://openlineage.io/spec/facets/1-0-0/ParentRunFacet.json",
+		Run:       Run{RunID: parentRunID},
+		Job:       parentJob,
+	}
 	return event
 }
 
@@ -197,6 +229,19 @@ func RedpandaDataset(brokers []string, topic string) Dataset {
 // FileDataset returns a stable dataset identifier for a local file boundary.
 func FileDataset(dir string, name string) Dataset {
 	return Dataset{Namespace: "file://" + filepath.ToSlash(filepath.Clean(dir)), Name: name}
+}
+
+// DuckDBDataset returns a stable dataset identifier for a local DuckDB table.
+func DuckDBDataset(path string, table string) Dataset {
+	if path == "" {
+		path = "var/eventflow/eventflow.duckdb"
+	}
+	if path != ":memory:" && !filepath.IsAbs(path) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
+	return Dataset{Namespace: "duckdb://" + filepath.ToSlash(filepath.Clean(path)), Name: table}
 }
 
 // NDJSONReader reads lineage events from newline-delimited JSON.

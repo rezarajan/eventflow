@@ -45,6 +45,22 @@ func (s Service) Run(ctx context.Context, runID string) (summary event.Summary, 
 		_ = s.Source.Close(ctx)
 		return event.Summary{}, openErr
 	}
+	inputs := []lineage.Dataset{s.Source.Dataset()}
+	outputs := handlerOutputDatasets(openedHandlers)
+	if err := s.emitConsumeLineage(ctx, "START", runID, inputs, outputs, nil); err != nil {
+		_ = closeHandlers(ctx, openedHandlers)
+		_ = s.Source.Close(ctx)
+		return event.Summary{}, err
+	}
+	defer func() {
+		eventType := "COMPLETE"
+		if err != nil {
+			eventType = "FAIL"
+		}
+		if lineageErr := s.emitConsumeLineage(ctx, eventType, runID, inputs, outputs, err); lineageErr != nil && err == nil {
+			err = lineageErr
+		}
+	}()
 	defer func() {
 		if closeErr := closeHandlers(ctx, openedHandlers); closeErr != nil && err == nil {
 			err = closeErr
@@ -94,7 +110,7 @@ func (s Service) openAll(ctx context.Context) ([]port.EventHandler, error) {
 func (s Service) handleBatch(ctx context.Context, runID string, events []cloudevents.Event, stats *consumeStats) error {
 	for _, handler := range s.Handlers {
 		projectorRunID := fmt.Sprintf("%s-%s-%d", runID, handler.Name(), stats.events()+len(events))
-		if err := s.emitLineage(ctx, "START", handler.Name(), projectorRunID, []lineage.Dataset{s.Source.Dataset()}, []lineage.Dataset{handler.Dataset()}, nil); err != nil {
+		if err := s.emitHandlerLineage(ctx, "START", handler.Name(), projectorRunID, runID, []lineage.Dataset{s.Source.Dataset()}, outputDatasets(handler), nil); err != nil {
 			return err
 		}
 		var handleErr error
@@ -112,7 +128,7 @@ func (s Service) handleBatch(ctx context.Context, runID string, events []cloudev
 		if handleErr != nil {
 			eventType = "FAIL"
 		}
-		if err := s.emitLineage(ctx, eventType, handler.Name(), projectorRunID, []lineage.Dataset{s.Source.Dataset()}, []lineage.Dataset{handler.Dataset()}, handleErr); err != nil {
+		if err := s.emitHandlerLineage(ctx, eventType, handler.Name(), projectorRunID, runID, []lineage.Dataset{s.Source.Dataset()}, outputDatasets(handler), handleErr); err != nil {
 			return err
 		}
 		if handleErr != nil {
@@ -125,17 +141,31 @@ func (s Service) handleBatch(ctx context.Context, runID string, events []cloudev
 	return nil
 }
 
-// emitLineage emits one projector lineage event when lineage is configured.
-func (s Service) emitLineage(ctx context.Context, eventType string, handlerName string, runID string, inputs []lineage.Dataset, outputs []lineage.Dataset, runErr error) error {
+// emitConsumeLineage emits one lineage event for the consumer job.
+func (s Service) emitConsumeLineage(ctx context.Context, eventType string, runID string, inputs []lineage.Dataset, outputs []lineage.Dataset, runErr error) error {
 	if s.Lineage == nil {
 		return nil
 	}
-	jobName := "eventflow-" + handlerName + "-projector"
 	namespace := s.LineageNS
 	if namespace == "" {
 		namespace = "eventflow"
 	}
-	return s.Lineage.Emit(ctx, lineage.NewEvent(eventType, namespace, jobName, runID, inputs, outputs, runErr, s.Now))
+	return s.Lineage.Emit(ctx, lineage.NewEvent(eventType, namespace, "eventflow-consume", runID, inputs, outputs, runErr, s.Now))
+}
+
+// emitHandlerLineage emits one lineage event for a child projector job.
+func (s Service) emitHandlerLineage(ctx context.Context, eventType string, handlerName string, runID string, parentRunID string, inputs []lineage.Dataset, outputs []lineage.Dataset, runErr error) error {
+	if s.Lineage == nil {
+		return nil
+	}
+	namespace := s.LineageNS
+	if namespace == "" {
+		namespace = "eventflow"
+	}
+	jobName := "eventflow-" + handlerName + "-projector"
+	event := lineage.NewEvent(eventType, namespace, jobName, runID, inputs, outputs, runErr, s.Now)
+	event = lineage.WithParent(event, lineage.Job{Namespace: namespace, Name: "eventflow-consume"}, parentRunID)
+	return s.Lineage.Emit(ctx, event)
 }
 
 // shouldContinue reports whether the service should request another batch.
@@ -199,6 +229,26 @@ func handlerNames(handlers []port.EventHandler) []string {
 		names = append(names, handler.Name())
 	}
 	return names
+}
+
+// handlerOutputDatasets returns stable output datasets for configured handlers.
+func handlerOutputDatasets(handlers []port.EventHandler) []lineage.Dataset {
+	datasets := make([]lineage.Dataset, 0, len(handlers))
+	for _, handler := range handlers {
+		datasets = append(datasets, outputDatasets(handler)...)
+	}
+	return datasets
+}
+
+// outputDatasets returns precise output datasets when a handler can provide them.
+func outputDatasets(handler port.EventHandler) []lineage.Dataset {
+	if provider, ok := handler.(port.OutputDatasetProvider); ok {
+		datasets := provider.OutputDatasets()
+		if len(datasets) > 0 {
+			return datasets
+		}
+	}
+	return []lineage.Dataset{handler.Dataset()}
 }
 
 // consumeStats tracks consumed event counts safely.
