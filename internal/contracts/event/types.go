@@ -10,7 +10,7 @@ type Fact struct {
 	Data    map[string]any `json:"data,omitempty"`
 }
 
-// Summary describes the result of a generation or fan-out run.
+// Summary describes the result of a generation, fan-out, or consumption run.
 type Summary struct {
 	RunID       string         `json:"run_id"`
 	Generator   string         `json:"generator,omitempty"`
@@ -21,4 +21,17 @@ type Summary struct {
 	StartedAt   time.Time      `json:"started_at"`
 	CompletedAt time.Time      `json:"completed_at"`
 	DurationMS  int64          `json:"duration_ms"`
+}
+
+// Metadata carries platform-owned CloudEvents attributes for one domain event.
+type Metadata struct {
+	ID            string
+	Source        string
+	Type          string
+	Subject       string
+	RunID         string
+	CorrelationID string
+	CausationID   string
+	Tenant        string
+	Time          time.Time
 }

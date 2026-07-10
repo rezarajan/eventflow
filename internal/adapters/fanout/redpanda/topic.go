@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
+
+	"github.com/datascape/lakehouse-poc/internal/contracts/event"
 )
 
 // IsSingleTopicMode reports whether a topic mode resolves all events to one configured topic.
@@ -31,6 +33,12 @@ func TopicFor(config Config, evt cloudevents.Event) (string, error) {
 			return "", fmt.Errorf("CloudEvent type is required for type-prefix topic mode")
 		}
 		return prefix + ".events.v1", nil
+	case "catalog":
+		spec, ok := event.DefaultCatalog().Lookup(evt.Type())
+		if !ok {
+			return "", fmt.Errorf("no catalog topic for CloudEvent type %q", evt.Type())
+		}
+		return spec.Topic, nil
 	default:
 		return "", fmt.Errorf("unsupported redpanda topic mode %q", config.TopicMode)
 	}

@@ -33,6 +33,19 @@ func TestTopicForTypePrefixMode(t *testing.T) {
 	}
 }
 
+// TestTopicForCatalogMode verifies that catalog mode uses the canonical event channel.
+func TestTopicForCatalogMode(t *testing.T) {
+	evt := cloudevents.NewEvent(cloudevents.VersionV1)
+	evt.SetType("grade.recorded.v1")
+	topic, err := TopicFor(Config{TopicMode: "catalog"}, evt)
+	if err != nil {
+		t.Fatalf("TopicFor returned error: %v", err)
+	}
+	if topic != "assessment.events.v1" {
+		t.Fatalf("topic = %q, want assessment.events.v1", topic)
+	}
+}
+
 // TestTopicForRejectsMissingSingleTopic verifies static topic mode requires a topic name.
 func TestTopicForRejectsMissingSingleTopic(t *testing.T) {
 	_, err := TopicFor(Config{TopicMode: "single"}, cloudevents.NewEvent(cloudevents.VersionV1))

@@ -2,6 +2,7 @@ package consume
 
 import (
 	"github.com/datascape/lakehouse-poc/internal/adapters/consume/documents"
+	"github.com/datascape/lakehouse-poc/internal/adapters/consume/duckdb"
 	"github.com/datascape/lakehouse-poc/internal/adapters/consume/jsonl"
 	port "github.com/datascape/lakehouse-poc/internal/ports/consume"
 )
@@ -13,6 +14,9 @@ func Defaults() (*Registry, error) {
 		return nil, err
 	}
 	if err := reg.Register(documents.Name, func() port.EventHandler { return documents.New(documents.FromEnv()) }); err != nil {
+		return nil, err
+	}
+	if err := reg.Register(duckdb.Name, func() port.EventHandler { return duckdb.New(duckdb.FromEnv()) }); err != nil {
 		return nil, err
 	}
 	return reg, nil

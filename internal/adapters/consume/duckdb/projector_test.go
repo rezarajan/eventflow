@@ -1,0 +1,76 @@
+package duckdb
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+	"time"
+
+	cloudevents "github.com/cloudevents/sdk-go/v2"
+	_ "github.com/duckdb/duckdb-go/v2"
+)
+
+func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("open duckdb: %v", err)
+	}
+	projector := NewWithDB(Config{Path: ":memory:"}, db)
+	if err := projector.Open(ctx); err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	evt := duckdbTestEvent(t, "evt-1", "attendance.submitted.v1")
+	if err := projector.HandleBatch(ctx, []cloudevents.Event{evt, evt}); err != nil {
+		t.Fatalf("HandleBatch returned error: %v", err)
+	}
+	assertCount(t, db, "_raw_events", 1)
+	assertCount(t, db, "attendance", 1)
+	if err := projector.Close(ctx); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
+func TestProjectorStoresUnknownEventsOnlyInRawTable(t *testing.T) {
+	ctx := context.Background()
+	db, err := sql.Open("duckdb", ":memory:")
+	if err != nil {
+		t.Fatalf("open duckdb: %v", err)
+	}
+	projector := NewWithDB(Config{Path: ":memory:"}, db)
+	if err := projector.Open(ctx); err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if err := projector.Handle(ctx, duckdbTestEvent(t, "evt-2", "unknown.created.v1")); err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	assertCount(t, db, "_raw_events", 1)
+	assertCount(t, db, "attendance", 0)
+	if err := projector.Close(ctx); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
+func duckdbTestEvent(t *testing.T, id string, eventType string) cloudevents.Event {
+	t.Helper()
+	evt := cloudevents.NewEvent(cloudevents.VersionV1)
+	evt.SetID(id)
+	evt.SetType(eventType)
+	evt.SetSource("urn:test")
+	evt.SetTime(time.Date(2026, 7, 9, 1, 0, 0, 0, time.UTC))
+	if err := evt.SetData(cloudevents.ApplicationJSON, map[string]any{"id": id}); err != nil {
+		t.Fatalf("SetData returned error: %v", err)
+	}
+	return evt
+}
+
+func assertCount(t *testing.T, db *sql.DB, table string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow(`SELECT count(*) FROM ` + quoteIdent(table)).Scan(&got); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	if got != want {
+		t.Fatalf("%s count = %d, want %d", table, got, want)
+	}
+}

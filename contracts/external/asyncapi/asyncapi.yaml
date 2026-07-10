@@ -5,11 +5,22 @@ info:
   description: Future event-bus channel contract for CloudEvents-based synthetic school-domain events.
 defaultContentType: application/cloudevents+json
 servers:
+  local-http-ingress:
+    host: localhost:8080
+    protocol: http
+    description: Producer-friendly HTTP ingress for plain JSON payloads.
   local-redpanda:
     host: localhost:9092
     protocol: kafka
-    description: Future local Redpanda broker. Not required in the standards-only increment.
+    description: Local Redpanda broker for canonical CloudEvents topics.
 channels:
+  producer.ingress.v1:
+    address: /v1/events/{event_type}
+    messages:
+      AttendanceSubmitted:
+        $ref: '#/components/messages/AttendanceSubmitted'
+      GradeRecorded:
+        $ref: '#/components/messages/GradeRecorded'
   school.events.v1:
     address: school.events.v1
     messages:
@@ -47,6 +58,10 @@ channels:
       OpenLineageRunEventPublished:
         $ref: '#/components/messages/OpenLineageRunEventPublished'
 operations:
+  receiveProducerEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/producer.ingress.v1'
   publishSchoolEvents:
     action: send
     channel:

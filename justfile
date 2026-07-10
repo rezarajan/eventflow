@@ -22,6 +22,11 @@ create-redpanda-topic:
     docker compose exec redpanda rpk cluster health -X brokers=localhost:9092 | grep -E 'Healthy:.+true' || exit 1
     docker compose exec redpanda rpk topic create ${DATASCAPE_REDPANDA_TOPIC:-datascape.events.v1} -X brokers=localhost:9092 --partitions 3 --replicas 1
 
+# Create canonical catalog topics used by HTTP ingress.
+create-catalog-topics:
+    docker compose exec redpanda rpk cluster health -X brokers=localhost:9092 | grep -E 'Healthy:.+true' || exit 1
+    for topic in school.events.v1 student.events.v1 attendance.events.v1 assessment.events.v1 document.events.v1 audit.events.v1; do docker compose exec redpanda rpk topic create "$topic" -X brokers=localhost:9092 --partitions 3 --replicas 1 || true; done
+
 # Stop local infrastructure.
 down:
     docker compose down
@@ -38,6 +43,10 @@ fanout-log:
 fanout-redpanda:
     DATASCAPE_OUTPUTS=redpanda go run ./cmd/datascape-fanout --outputs redpanda
 
+# Serve the producer-friendly HTTP ingress API.
+ingress-http:
+    DATASCAPE_REDPANDA_TOPIC_MODE=catalog go run ./cmd/datascape-ingress-http
+
 # Run the local log-only demo pipeline.
 run-demo:
     go run ./cmd/datascape-generate --generator ${DATASCAPE_GENERATOR:-demo.school.v1} | go run ./cmd/datascape-fanout --outputs log
@@ -53,6 +62,10 @@ run-materialize-demo:
 # Run the full local lineage and materialization demo.
 run-lineage-demo:
     bash scripts/run-lineage-demo.sh
+
+# Consume a bounded Redpanda stream into JSONL, object files, and DuckDB.
+run-ingress-duckdb-demo:
+    DATASCAPE_CONSUME_HANDLERS=jsonl,objects,duckdb DATASCAPE_CONSUME_MAX_EVENTS=${DATASCAPE_CONSUME_MAX_EVENTS:-10} go run ./cmd/datascape-consume
 
 # Run the local lineage demo and replay OpenLineage events to Marquez.
 run-marquez-demo:

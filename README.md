@@ -28,6 +28,8 @@ flowchart LR
 
 CloudEvents are business/domain events. OpenLineage events are separate operational metadata about jobs, runs, inputs, and outputs. The code does not mutate CloudEvents with lineage fields.
 
+Producer-facing ingress keeps that boundary explicit: domains can post plain JSON payloads to HTTP while the platform validates payloads, wraps them as CloudEvents, publishes to Redpanda, and emits OpenLineage separately.
+
 Stable lineage path:
 
 ```text
@@ -64,8 +66,16 @@ datascape-generate
 - consumes CloudEvents from Redpanda through a generic event source port;
 - supports bounded consumption for demos through max event limits;
 - dispatches events or batches to configured handler/projector adapters;
-- materializes JSONL tables and text object artifacts;
+- materializes JSONL tables, text object artifacts, and DuckDB tables;
 - emits OpenLineage metadata for the consumer and projector steps.
+
+`datascape-ingress-http`:
+
+- exposes `POST /v1/events/{event_type}` for plain JSON domain payloads;
+- validates payloads against the event JSON Schemas;
+- wraps payloads with CloudEvents metadata and correlation headers;
+- publishes canonical CloudEvents to Redpanda catalog topics;
+- emits OpenLineage metadata for the ingress publication step.
 
 `datascape-lineage-replay`:
 
@@ -78,16 +88,18 @@ datascape-generate
 - `cmd/datascape-generate`: generator CLI composition.
 - `cmd/datascape-fanout`: fan-out CLI composition.
 - `cmd/datascape-consume`: consumer CLI composition.
+- `cmd/datascape-ingress-http`: producer-friendly HTTP ingress composition.
 - `internal/app/generate`: generation orchestration.
 - `internal/app/fanout`: fan-out orchestration, batching, workers, publisher lifecycle.
 - `internal/app/consume`: bounded consumption and handler dispatch.
+- `internal/app/ingest`: producer payload validation, CloudEvents wrapping, and publish orchestration.
 - `internal/contracts/event`: facts, CloudEvents factory, JSONL codec, summaries.
 - `internal/ports/generator`: generator interfaces.
 - `internal/ports/fanout`: publisher interfaces.
 - `internal/ports/consume`: event source and handler/projector interfaces.
 - `internal/adapters/generator`: generator registry and demo school generator.
 - `internal/adapters/fanout`: log, stdout, discard, and Redpanda publishers.
-- `internal/adapters/consume`: handler registry, Redpanda source, JSONL projector, text object projector.
+- `internal/adapters/consume`: handler registry, Redpanda source, JSONL projector, text object projector, DuckDB projector.
 - `internal/lineage`: local OpenLineage-compatible events and emitters.
 - `internal/adapters/lineage`: lineage emitter factory, Marquez HTTP emitter, NDJSON reader adapter.
 - `contracts`: schema and standards contracts.
@@ -97,7 +109,7 @@ datascape-generate
 
 ## Requirements
 
-- Go 1.23 or newer.
+- Go 1.24 or newer.
 - `just` for recipe shortcuts.
 - Docker Compose for Redpanda-backed demos.
 
@@ -144,6 +156,41 @@ Run the full lineage and materialization demo:
 just run-lineage-demo
 ```
 
+Serve the HTTP ingress API:
+
+```bash
+just up
+just create-catalog-topics
+DATASCAPE_REDPANDA_TOPIC_MODE=catalog just ingress-http
+```
+
+Publish a plain JSON domain event:
+
+```bash
+curl -i -X POST http://localhost:8080/v1/events/attendance.submitted.v1 \
+  -H 'content-type: application/json' \
+  -H 'X-Datascape-Subject: student-22222222' \
+  -H 'X-Correlation-ID: demo-correlation-1' \
+  -d '{
+    "attendance_id": "11111111-1111-1111-1111-111111111111",
+    "student_id": "22222222-2222-2222-2222-222222222222",
+    "class_id": "33333333-3333-3333-3333-333333333333",
+    "school_id": "44444444-4444-4444-4444-444444444444",
+    "attendance_date": "2026-07-09",
+    "status_code": "PRESENT",
+    "submitted_at": "2026-07-09T01:00:00Z"
+  }'
+```
+
+Consume into DuckDB:
+
+```bash
+DATASCAPE_CONSUME_HANDLERS=jsonl,objects,duckdb \
+DATASCAPE_REDPANDA_TOPIC=attendance.events.v1 \
+DATASCAPE_CONSUME_MAX_EVENTS=1 \
+go run ./cmd/datascape-consume
+```
+
 Run the full demo and replay OpenLineage into Marquez:
 
 ```bash
@@ -170,13 +217,16 @@ just test
 just deps
 just up
 just create-redpanda-topic
+just create-catalog-topics
 just generate
 just fanout-log
 just fanout-redpanda
+just ingress-http
 just run-demo
 just run-redpanda-demo
 just run-materialize-demo
 just run-lineage-demo
+just run-ingress-duckdb-demo
 just run-marquez-demo
 just consume-redpanda
 just down
@@ -244,6 +294,15 @@ DATASCAPE_CONSUME_BATCH_SIZE=100
 DATASCAPE_CONSUME_MAX_EVENTS=102
 DATASCAPE_JSONL_DIR=var/datascape/materialized
 DATASCAPE_OBJECT_DIR=var/datascape/objects
+DATASCAPE_DUCKDB_PATH=var/datascape/datascape.duckdb
+```
+
+HTTP ingress:
+
+```text
+DATASCAPE_INGRESS_HTTP_ADDR=:8080
+DATASCAPE_INGRESS_MAX_BODY=1048576
+DATASCAPE_REDPANDA_TOPIC_MODE=catalog
 ```
 
 Lineage:
