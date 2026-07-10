@@ -11,8 +11,8 @@ import (
 
 // TestRedpandaDatasetUsesStableBrokerAndTopic verifies Redpanda dataset naming is stitchable.
 func TestRedpandaDatasetUsesStableBrokerAndTopic(t *testing.T) {
-	got := RedpandaDataset([]string{"localhost:19092"}, "datascape.events.v1")
-	if got.Namespace != "redpanda://localhost:19092" || got.Name != "datascape.events.v1" {
+	got := RedpandaDataset([]string{"localhost:19092"}, "example.events.v1")
+	if got.Namespace != "redpanda://localhost:19092" || got.Name != "example.events.v1" {
 		t.Fatalf("unexpected dataset: %+v", got)
 	}
 }

@@ -6,7 +6,7 @@ import "testing"
 // a per-message topic when the writer is already configured with one.
 func TestKafkaMessageForTopicWriterOmitsTopic(t *testing.T) {
 	message := Message{
-		Topic: "datascape.events.v1",
+		Topic: "example.events.v1",
 		Key:   []byte("event-1"),
 		Value: []byte(`{"id":"event-1"}`),
 		Headers: []Header{

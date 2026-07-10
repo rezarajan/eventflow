@@ -7,8 +7,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	port "github.com/datascape/lakehouse-poc/internal/ports/fanout"
-	"github.com/datascape/lakehouse-poc/internal/testkit/fakes"
+	port "github.com/datascape/eventflow/internal/ports/fanout"
+	"github.com/datascape/eventflow/internal/testkit/fakes"
 )
 
 // TestCreatePublishersParsesCommaSeparatedOutputs verifies CLI output selection uses the registry only.
@@ -42,9 +42,9 @@ func TestCreatePublishersReturnsFactoryErrors(t *testing.T) {
 // TestOutputDatasetsStitchesRedpandaTopic verifies fan-out Redpanda lineage matches consumer input naming.
 func TestOutputDatasetsStitchesRedpandaTopic(t *testing.T) {
 	t.Setenv("DATASCAPE_REDPANDA_BROKERS", "localhost:19092")
-	t.Setenv("DATASCAPE_REDPANDA_TOPIC", "datascape.events.v1")
+	t.Setenv("DATASCAPE_REDPANDA_TOPIC", "example.events.v1")
 	datasets := outputDatasets("redpanda,log")
-	if len(datasets) != 2 || datasets[0].Namespace != "redpanda://localhost:19092" || datasets[0].Name != "datascape.events.v1" {
+	if len(datasets) != 2 || datasets[0].Namespace != "redpanda://localhost:19092" || datasets[0].Name != "example.events.v1" {
 		t.Fatalf("unexpected datasets: %+v", datasets)
 	}
 }

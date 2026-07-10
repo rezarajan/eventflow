@@ -1,4 +1,4 @@
-profile: datascape.cloudevents.profile.v1
+profile: eventflow.cloudevents.profile.v1
 standard: CloudEvents
 purpose: Event envelope for school-domain business events.
 specversion: "1.0"
@@ -11,7 +11,7 @@ required_attributes:
   - datacontenttype
   - data
 required_datacontenttype: application/json
-source_prefix: urn:datascape:sampledb
+source_prefix: urn:eventflow:sampledb
 extension_attributes:
   - datasettier
   - correlationid

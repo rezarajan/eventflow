@@ -8,14 +8,14 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	port "github.com/datascape/lakehouse-poc/internal/ports/consume"
+	"github.com/datascape/eventflow/internal/lineage"
+	port "github.com/datascape/eventflow/internal/ports/consume"
 )
 
 // TestServiceConsumesBatchesWithBatchHandlers verifies batch-capable handlers receive consumed batches.
 func TestServiceConsumesBatchesWithBatchHandlers(t *testing.T) {
 	source := &fakeSource{events: []cloudevents.Event{
-		consumeTestEvent(t, "1", "school.registered.v1"),
+		consumeTestEvent(t, "1", "example.created.v1"),
 		consumeTestEvent(t, "2", "class.created.v1"),
 		consumeTestEvent(t, "3", "student.enrolled.v1"),
 	}}
@@ -36,7 +36,7 @@ func TestServiceConsumesBatchesWithBatchHandlers(t *testing.T) {
 // TestServiceStopsAtMaxEvents verifies the configured event limit bounds consumption.
 func TestServiceStopsAtMaxEvents(t *testing.T) {
 	source := &fakeSource{events: []cloudevents.Event{
-		consumeTestEvent(t, "1", "school.registered.v1"),
+		consumeTestEvent(t, "1", "example.created.v1"),
 		consumeTestEvent(t, "2", "class.created.v1"),
 		consumeTestEvent(t, "3", "student.enrolled.v1"),
 	}}

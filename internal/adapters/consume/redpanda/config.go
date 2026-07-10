@@ -20,10 +20,10 @@ type Config struct {
 // FromEnv builds Redpanda consumer configuration from environment variables.
 func FromEnv() Config {
 	return Config{
-		Brokers:     splitCSV(envString("DATASCAPE_REDPANDA_BROKERS", "localhost:19092")),
-		Topic:       envString("DATASCAPE_REDPANDA_TOPIC", "datascape.events.v1"),
-		GroupID:     envString("DATASCAPE_REDPANDA_CONSUMER_GROUP", "datascape-consume-demo"),
-		StartOffset: envString("DATASCAPE_REDPANDA_CONSUMER_START_OFFSET", "first"),
+		Brokers:     splitCSV(envString("EVENTFLOW_REDPANDA_BROKERS", envString("DATASCAPE_REDPANDA_BROKERS", "localhost:19092"))),
+		Topic:       envString("EVENTFLOW_REDPANDA_TOPIC", envString("DATASCAPE_REDPANDA_TOPIC", "")),
+		GroupID:     envString("EVENTFLOW_REDPANDA_CONSUMER_GROUP", envString("DATASCAPE_REDPANDA_CONSUMER_GROUP", "eventflow-consume")),
+		StartOffset: envString("EVENTFLOW_REDPANDA_CONSUMER_START_OFFSET", envString("DATASCAPE_REDPANDA_CONSUMER_START_OFFSET", "first")),
 	}
 }
 
@@ -32,11 +32,8 @@ func (c Config) normalized() Config {
 	if len(c.Brokers) == 0 {
 		c.Brokers = []string{"localhost:19092"}
 	}
-	if c.Topic == "" {
-		c.Topic = "datascape.events.v1"
-	}
 	if c.GroupID == "" {
-		c.GroupID = "datascape-consume-demo"
+		c.GroupID = "eventflow-consume"
 	}
 	if c.StartOffset == "" {
 		c.StartOffset = "first"

@@ -1,4 +1,4 @@
-profile: datascape.s3.compatibility.v1
+profile: eventflow.s3.compatibility.v1
 standard: S3-compatible object API
 purpose: Object storage boundary for raw extracts, PDFs, Iceberg data files, manifests, and checksums.
 required_operations:

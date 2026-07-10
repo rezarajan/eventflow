@@ -1,4 +1,4 @@
-// Package main provides the datascape-fanout command.
+// Package main provides the eventflow-fanout command.
 package main
 
 import (
@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	fanoutadapters "github.com/datascape/lakehouse-poc/internal/adapters/fanout"
-	"github.com/datascape/lakehouse-poc/internal/adapters/fanout/redpanda"
-	lineageadapters "github.com/datascape/lakehouse-poc/internal/adapters/lineage"
-	"github.com/datascape/lakehouse-poc/internal/app/fanout"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	port "github.com/datascape/lakehouse-poc/internal/ports/fanout"
+	fanoutadapters "github.com/datascape/eventflow/internal/adapters/fanout"
+	"github.com/datascape/eventflow/internal/adapters/fanout/redpanda"
+	lineageadapters "github.com/datascape/eventflow/internal/adapters/lineage"
+	"github.com/datascape/eventflow/internal/app/fanout"
+	"github.com/datascape/eventflow/internal/lineage"
+	port "github.com/datascape/eventflow/internal/ports/fanout"
 )
 
 // main runs the fan-out command and exits with a process status code.
@@ -29,12 +29,46 @@ func main() {
 
 // run parses command arguments and publishes input events to configured outputs.
 func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, stderr *os.File) error {
-	flags := flag.NewFlagSet("datascape-fanout", flag.ContinueOnError)
+	flags := flag.NewFlagSet("eventflow-fanout", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	outputs := flags.String("outputs", envString("DATASCAPE_OUTPUTS", "log"), "comma-separated output adapter names")
-	runID := flags.String("run-id", envString("DATASCAPE_RUN_ID", defaultRunID()), "fan-out run id")
-	batchSize := flags.Int("batch-size", envInt("DATASCAPE_FANOUT_BATCH_SIZE", 100), "maximum event batch size for batch-capable outputs")
+	outputs := flags.String("outputs", envString("EVENTFLOW_OUTPUTS", envString("DATASCAPE_OUTPUTS", "log")), "comma-separated output adapter names")
+	runID := flags.String("run-id", envString("EVENTFLOW_RUN_ID", envString("DATASCAPE_RUN_ID", defaultRunID())), "fan-out run id")
+	batchSize := flags.Int("batch-size", envInt("EVENTFLOW_FANOUT_BATCH_SIZE", envInt("DATASCAPE_FANOUT_BATCH_SIZE", 100)), "maximum event batch size for batch-capable outputs")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, `eventflow-fanout reads CloudEvents JSONL from stdin and publishes them.
+
+Usage:
+  eventflow-fanout --outputs stdout,redpanda < events.ndjson
+
+Outputs:
+  log       Write structured event summaries to stderr.
+  stdout    Write CloudEvents JSONL to stdout.
+  discard   Accept events without writing them.
+  redpanda  Publish events to Redpanda/Kafka.
+
+Data is read from stdin. Logs and diagnostics go to stderr so stdout remains
+usable in pipelines when the stdout output is selected.
+
+Common environment:
+  EVENTFLOW_OUTPUTS              Comma-separated output adapter names.
+  EVENTFLOW_REDPANDA_BROKERS     Kafka broker list, default localhost:19092.
+  EVENTFLOW_REDPANDA_TOPIC       Topic used by redpanda unless registry mode is enabled.
+  EVENTFLOW_REDPANDA_TOPIC_MODE  fixed or registry.
+  EVENTFLOW_REGISTRY             Registry used when topic mode is registry.
+  EVENTFLOW_LINEAGE_OUTPUT       noop, file, or marquez.
+  EVENTFLOW_MARQUEZ_URL          Marquez API URL when lineage output is marquez.
+
+Example:
+  EVENTFLOW_OUTPUTS=redpanda eventflow-fanout < events.ndjson
+
+Flags:
+`)
+		flags.PrintDefaults()
+	}
 	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
 		return err
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{}))
@@ -51,9 +85,9 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 	if err != nil {
 		return err
 	}
-	inputs := []lineage.Dataset{{Namespace: "datascape-generate", Name: "stdout/events"}}
+	inputs := []lineage.Dataset{{Namespace: "eventflow-generate", Name: "stdout/events"}}
 	outputDatasets := outputDatasets(*outputs)
-	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "datascape-fanout", *runID, inputs, outputDatasets, nil, time.Now)); err != nil {
+	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "eventflow-fanout", *runID, inputs, outputDatasets, nil, time.Now)); err != nil {
 		return err
 	}
 	_, runErr := service.Run(ctx, *runID, stdin)
@@ -61,7 +95,7 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 	if runErr != nil {
 		eventType = "FAIL"
 	}
-	if err := emitter.Emit(ctx, lineage.NewEvent(eventType, lineageConfig.Namespace, "datascape-fanout", *runID, inputs, outputDatasets, runErr, time.Now)); err != nil {
+	if err := emitter.Emit(ctx, lineage.NewEvent(eventType, lineageConfig.Namespace, "eventflow-fanout", *runID, inputs, outputDatasets, runErr, time.Now)); err != nil {
 		return err
 	}
 	return runErr
@@ -100,7 +134,7 @@ func outputDatasets(outputList string) []lineage.Dataset {
 		case "log":
 			datasets = append(datasets, lineage.Dataset{Namespace: "log", Name: "stdout/events"})
 		case "stdout":
-			datasets = append(datasets, lineage.Dataset{Namespace: "datascape-fanout", Name: "stdout/events"})
+			datasets = append(datasets, lineage.Dataset{Namespace: "eventflow-fanout", Name: "stdout/events"})
 		}
 	}
 	return datasets

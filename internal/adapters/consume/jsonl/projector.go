@@ -8,7 +8,7 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/lineage"
 )
 
 // Projector materializes selected domain events into simple JSONL tables.
@@ -58,12 +58,7 @@ func (p *Projector) Open(ctx context.Context) error {
 // OutputDatasets returns stable dataset identifiers for each JSONL table.
 func (p *Projector) OutputDatasets() []lineage.Dataset {
 	return []lineage.Dataset{
-		lineage.FileDataset(p.config.Dir, "schools.jsonl"),
-		lineage.FileDataset(p.config.Dir, "classes.jsonl"),
-		lineage.FileDataset(p.config.Dir, "students.jsonl"),
-		lineage.FileDataset(p.config.Dir, "attendance.jsonl"),
-		lineage.FileDataset(p.config.Dir, "grades.jsonl"),
-		lineage.FileDataset(p.config.Dir, "documents.jsonl"),
+		lineage.FileDataset(p.config.Dir, "_raw_events.jsonl"),
 	}
 }
 
@@ -74,22 +69,16 @@ func (p *Projector) Handle(ctx context.Context, evt cloudevents.Event) error {
 
 // HandleBatch materializes a group of CloudEvents with table-level writes.
 func (p *Projector) HandleBatch(ctx context.Context, events []cloudevents.Event) error {
-	linesByTable := map[string][][]byte{}
+	lines := make([][]byte, 0, len(events))
 	for _, evt := range events {
-		table, ok := tableForEventType(evt.Type())
-		if !ok {
-			continue
-		}
 		line, err := rowForEvent(evt)
 		if err != nil {
 			return err
 		}
-		linesByTable[table] = append(linesByTable[table], line)
+		lines = append(lines, line)
 	}
-	for table, lines := range linesByTable {
-		if err := p.store.AppendLines(ctx, table, lines); err != nil {
-			return fmt.Errorf("append JSONL table %s: %w", table, err)
-		}
+	if err := p.store.AppendLines(ctx, "_raw_events.jsonl", lines); err != nil {
+		return fmt.Errorf("append JSONL table _raw_events.jsonl: %w", err)
 	}
 	return nil
 }
@@ -101,26 +90,6 @@ func (p *Projector) Close(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		return nil
-	}
-}
-
-// tableForEventType returns the local table for a CloudEvent type.
-func tableForEventType(eventType string) (string, bool) {
-	switch eventType {
-	case "school.registered.v1":
-		return "schools.jsonl", true
-	case "class.created.v1":
-		return "classes.jsonl", true
-	case "student.enrolled.v1":
-		return "students.jsonl", true
-	case "attendance.submitted.v1", "attendance.corrected.v1":
-		return "attendance.jsonl", true
-	case "grade.recorded.v1":
-		return "grades.jsonl", true
-	case "document.uploaded.v1":
-		return "documents.jsonl", true
-	default:
-		return "", false
 	}
 }
 

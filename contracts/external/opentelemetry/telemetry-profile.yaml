@@ -1,4 +1,4 @@
-profile: datascape.opentelemetry.profile.v1
+profile: eventflow.opentelemetry.profile.v1
 standard: OpenTelemetry
 purpose: Vendor-neutral technical observability.
 required_signals:
@@ -9,7 +9,7 @@ required_resource_attributes:
   - service.name
   - service.version
   - deployment.environment
-  - datascape.component
+  - eventflow.component
 required_span_attributes:
   - run.id
   - dataset.name

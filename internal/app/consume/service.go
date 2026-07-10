@@ -11,9 +11,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	port "github.com/datascape/lakehouse-poc/internal/ports/consume"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/lineage"
+	port "github.com/datascape/eventflow/internal/ports/consume"
 )
 
 // Service reads CloudEvents from a source and applies them to configured handlers.
@@ -130,10 +130,10 @@ func (s Service) emitLineage(ctx context.Context, eventType string, handlerName 
 	if s.Lineage == nil {
 		return nil
 	}
-	jobName := "datascape-" + handlerName + "-projector"
+	jobName := "eventflow-" + handlerName + "-projector"
 	namespace := s.LineageNS
 	if namespace == "" {
-		namespace = "datascape"
+		namespace = "eventflow"
 	}
 	return s.Lineage.Emit(ctx, lineage.NewEvent(eventType, namespace, jobName, runID, inputs, outputs, runErr, s.Now))
 }

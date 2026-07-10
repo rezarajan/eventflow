@@ -11,8 +11,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/ports/generator"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/ports/generator"
 )
 
 // Service runs a selected generator and emits CloudEvents JSONL to an output writer.

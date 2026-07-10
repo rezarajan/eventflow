@@ -1,4 +1,4 @@
-profile: datascape.openlineage.event.v1
+profile: eventflow.openlineage.event.v1
 standard: OpenLineage
 purpose: Lineage event boundary for source generation, ingestion, transformation, quality, and serving.
 required_event_types:

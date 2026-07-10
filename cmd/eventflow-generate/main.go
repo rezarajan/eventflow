@@ -1,4 +1,4 @@
-// Package main provides the datascape-generate command.
+// Package main provides the eventflow-generate command.
 package main
 
 import (
@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datascape/lakehouse-poc/internal/adapters/generator/registry"
-	lineageadapters "github.com/datascape/lakehouse-poc/internal/adapters/lineage"
-	"github.com/datascape/lakehouse-poc/internal/app/generate"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	"github.com/datascape/lakehouse-poc/internal/ports/generator"
+	"github.com/datascape/eventflow/internal/adapters/generator/registry"
+	lineageadapters "github.com/datascape/eventflow/internal/adapters/lineage"
+	"github.com/datascape/eventflow/internal/app/generate"
+	"github.com/datascape/eventflow/internal/lineage"
+	"github.com/datascape/eventflow/internal/ports/generator"
 )
 
 // main runs the generator command and exits with a process status code.
@@ -28,15 +28,46 @@ func main() {
 
 // run parses command arguments and streams generated events to stdout.
 func run(ctx context.Context, args []string, stdout *os.File, stderr *os.File) error {
-	flags := flag.NewFlagSet("datascape-generate", flag.ContinueOnError)
+	flags := flag.NewFlagSet("eventflow-generate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	generatorName := flags.String("generator", envString("DATASCAPE_GENERATOR", ""), "registered generator name")
-	runID := flags.String("run-id", envString("DATASCAPE_RUN_ID", defaultRunID()), "generation run id")
-	seed := flags.Int64("seed", envInt64("DATASCAPE_SEED", 42), "deterministic generator seed")
-	source := flags.String("source", envString("DATASCAPE_EVENT_SOURCE", "urn:datascape:generate"), "CloudEvents source")
+	generatorName := flags.String("generator", envString("EVENTFLOW_GENERATOR", envString("DATASCAPE_GENERATOR", "")), "registered generator name")
+	runID := flags.String("run-id", envString("EVENTFLOW_RUN_ID", envString("DATASCAPE_RUN_ID", defaultRunID())), "generation run id")
+	seed := flags.Int64("seed", envInt64("EVENTFLOW_SEED", envInt64("DATASCAPE_SEED", 42)), "deterministic generator seed")
+	source := flags.String("source", envString("EVENTFLOW_EVENT_SOURCE", envString("DATASCAPE_EVENT_SOURCE", "urn:eventflow:generate")), "CloudEvents source")
 	params := multiValueFlag{}
 	flags.Var(&params, "param", "generator parameter as key=value; may be repeated")
+	flags.Usage = func() {
+		fmt.Fprint(stderr, `eventflow-generate streams CloudEvents JSONL from a registered generator.
+
+Usage:
+  eventflow-generate --generator name [--param key=value]...
+
+Generators are extension points. The core runtime does not compile in a domain
+generator by default; example or downstream modules should register their own
+generator implementations.
+
+Data is written to stdout as one CloudEvent JSON document per line. Logs and
+lineage diagnostics go to stderr.
+
+Common environment:
+  EVENTFLOW_GENERATOR        Default generator name.
+  EVENTFLOW_RUN_ID           Stable run id for lineage.
+  EVENTFLOW_SEED             Deterministic generator seed.
+  EVENTFLOW_EVENT_SOURCE     CloudEvents source value.
+  EVENTFLOW_LINEAGE_OUTPUT   noop, file, or marquez.
+  EVENTFLOW_MARQUEZ_URL      Marquez API URL when lineage output is marquez.
+
+Example:
+  eventflow-generate --generator domain-generator --param count=10
+
+Flags:
+`)
+		flags.PrintDefaults()
+	}
 	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
 		return err
 	}
 	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{}))
@@ -57,8 +88,8 @@ func run(ctx context.Context, args []string, stdout *os.File, stderr *os.File) e
 	if err != nil {
 		return err
 	}
-	outputs := []lineage.Dataset{{Namespace: "datascape-generate", Name: "stdout/events"}}
-	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "datascape-generate", *runID, nil, outputs, nil, time.Now)); err != nil {
+	outputs := []lineage.Dataset{{Namespace: "eventflow-generate", Name: "stdout/events"}}
+	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "eventflow-generate", *runID, nil, outputs, nil, time.Now)); err != nil {
 		return err
 	}
 	_, runErr := service.Run(ctx, request, stdout)
@@ -66,7 +97,7 @@ func run(ctx context.Context, args []string, stdout *os.File, stderr *os.File) e
 	if runErr != nil {
 		eventType = "FAIL"
 	}
-	if err := emitter.Emit(ctx, lineage.NewEvent(eventType, lineageConfig.Namespace, "datascape-generate", *runID, nil, outputs, runErr, time.Now)); err != nil {
+	if err := emitter.Emit(ctx, lineage.NewEvent(eventType, lineageConfig.Namespace, "eventflow-generate", *runID, nil, outputs, runErr, time.Now)); err != nil {
 		return err
 	}
 	return runErr

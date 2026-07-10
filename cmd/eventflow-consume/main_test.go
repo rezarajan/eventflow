@@ -7,8 +7,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	port "github.com/datascape/lakehouse-poc/internal/ports/consume"
+	"github.com/datascape/eventflow/internal/lineage"
+	port "github.com/datascape/eventflow/internal/ports/consume"
 )
 
 // TestCreateHandlersParsesCommaSeparatedHandlers verifies CLI handler selection uses the registry only.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:generator-manifest:v1",
+  "$id": "urn:eventflow:schemas:generator-manifest:v1",
   "title": "Generator Manifest V1",
   "type": "object",
   "required": [

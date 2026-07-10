@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:undercurrent-scorecard:v1",
+  "$id": "urn:eventflow:schemas:undercurrent-scorecard:v1",
   "title": "Undercurrent Scorecard V1",
   "type": "object",
   "required": [

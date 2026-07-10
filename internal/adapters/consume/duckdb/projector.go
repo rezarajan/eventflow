@@ -14,25 +14,25 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/contracts/registry"
+	"github.com/datascape/eventflow/internal/lineage"
 )
 
 // Projector materializes CloudEvents into raw and typed DuckDB tables.
 type Projector struct {
-	config  Config
-	catalog event.Catalog
-	db      *sql.DB
+	config   Config
+	registry registry.Registry
+	db       *sql.DB
 }
 
 // New constructs a DuckDB projector backed by a local DuckDB file.
 func New(config Config) *Projector {
-	return &Projector{config: config.normalized(), catalog: event.DefaultCatalog()}
+	return &Projector{config: config.normalized()}
 }
 
 // NewWithDB constructs a DuckDB projector with an injected database handle.
 func NewWithDB(config Config, db *sql.DB) *Projector {
-	return &Projector{config: config.normalized(), catalog: event.DefaultCatalog(), db: db}
+	return &Projector{config: config.normalized(), db: db}
 }
 
 // Name returns the handler name.
@@ -54,6 +54,13 @@ func (p *Projector) Open(ctx context.Context) error {
 	}
 	if p.config.Path == "" {
 		return fmt.Errorf("duckdb path is required")
+	}
+	if p.config.RegistryPath != "" && !p.registry.HasEvents() {
+		loaded, err := registry.Load(p.config.RegistryPath)
+		if err != nil {
+			return err
+		}
+		p.registry = loaded
 	}
 	if p.db == nil {
 		if p.config.Path != ":memory:" {
@@ -104,9 +111,9 @@ func (p *Projector) HandleBatch(ctx context.Context, events []cloudevents.Event)
 		if err := insertRow(ctx, tx, "_raw_events", row); err != nil {
 			return fmt.Errorf("insert raw DuckDB event %s: %w", evt.ID(), err)
 		}
-		if spec, ok := p.catalog.Lookup(evt.Type()); ok {
-			if err := insertRow(ctx, tx, spec.Table, row); err != nil {
-				return fmt.Errorf("insert DuckDB table %s event %s: %w", spec.Table, evt.ID(), err)
+		if registered, ok := p.registry.Lookup(evt.Type()); ok && registered.Projection.Table != "" {
+			if err := insertRow(ctx, tx, registered.Projection.Table, row); err != nil {
+				return fmt.Errorf("insert DuckDB table %s event %s: %w", registered.Projection.Table, evt.ID(), err)
 			}
 		}
 	}
@@ -148,9 +155,10 @@ func (p *Projector) createTables(ctx context.Context) error {
 // catalogTables returns unique typed table names from the event catalog.
 func (p *Projector) catalogTables() []string {
 	seen := map[string]bool{}
-	for _, spec := range p.catalog.Specs() {
-		if spec.Table != "" {
-			seen[spec.Table] = true
+	for _, eventType := range p.registry.Types() {
+		registered, _ := p.registry.Lookup(eventType)
+		if registered.Projection.Table != "" {
+			seen[registered.Projection.Table] = true
 		}
 	}
 	tables := make([]string, 0, len(seen))

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:component-register:v1",
+  "$id": "urn:eventflow:schemas:component-register:v1",
   "title": "Component Register V1",
   "type": "object",
   "required": [

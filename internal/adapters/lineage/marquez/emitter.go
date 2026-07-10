@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/lineage"
 )
 
 // Config defines Marquez lineage emission settings.

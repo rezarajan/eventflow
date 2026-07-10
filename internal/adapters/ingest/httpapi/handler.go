@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/datascape/lakehouse-poc/internal/app/ingest"
+	"github.com/datascape/eventflow/internal/app/ingest"
 )
 
 const eventPrefix = "/v1/events/"
@@ -47,12 +47,12 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.Service.Publish(r.Context(), ingest.PublishRequest{
 		EventType:     eventType,
-		Source:        header(r, "X-Datascape-Source"),
-		Subject:       header(r, "X-Datascape-Subject"),
-		RunID:         header(r, "X-Datascape-Run-ID"),
+		Source:        headerAlias(r, "X-Eventflow-Source", "X-Datascape-Source"),
+		Subject:       headerAlias(r, "X-Eventflow-Subject", "X-Datascape-Subject"),
+		RunID:         headerAlias(r, "X-Eventflow-Run-ID", "X-Datascape-Run-ID"),
 		CorrelationID: header(r, "X-Correlation-ID"),
 		CausationID:   header(r, "X-Causation-ID"),
-		Tenant:        header(r, "X-Datascape-Tenant"),
+		Tenant:        headerAlias(r, "X-Eventflow-Tenant", "X-Datascape-Tenant"),
 		Payload:       payload,
 	})
 	if err != nil {
@@ -88,6 +88,14 @@ func decodePayload(reader io.Reader, maxBody int64) (map[string]any, error) {
 // header returns a trimmed request header value.
 func header(r *http.Request, key string) string {
 	return strings.TrimSpace(r.Header.Get(key))
+}
+
+// headerAlias returns the first present header from a preferred and deprecated name.
+func headerAlias(r *http.Request, preferred string, deprecated string) string {
+	if value := header(r, preferred); value != "" {
+		return value
+	}
+	return header(r, deprecated)
 }
 
 // maxBody returns the request body limit in bytes.

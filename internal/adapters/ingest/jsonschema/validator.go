@@ -10,7 +10,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/contracts/registry"
 )
 
 // Validator validates event payloads with Draft 2020-12 JSON Schemas.
@@ -25,13 +25,13 @@ func New() *Validator {
 }
 
 // Validate checks one payload against the schema referenced by an event spec.
-func (v *Validator) Validate(ctx context.Context, spec event.Spec, payload map[string]any) error {
+func (v *Validator) Validate(ctx context.Context, registered registry.Event, payload map[string]any) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	schema, err := v.schemaFor(spec)
+	schema, err := v.schemaFor(registered)
 	if err != nil {
 		return err
 	}
@@ -42,11 +42,11 @@ func (v *Validator) Validate(ctx context.Context, spec event.Spec, payload map[s
 }
 
 // schemaFor returns a compiled schema for the event spec.
-func (v *Validator) schemaFor(spec event.Spec) (*jsonschema.Schema, error) {
-	if spec.SchemaPath == "" {
-		return nil, fmt.Errorf("schema path is required for %s", spec.Type)
+func (v *Validator) schemaFor(registered registry.Event) (*jsonschema.Schema, error) {
+	if registered.Schema == "" {
+		return nil, fmt.Errorf("schema path is required for %s", registered.Type)
 	}
-	path, err := resolvePath(spec.SchemaPath)
+	path, err := resolvePath(registered.Schema)
 	if err != nil {
 		return nil, err
 	}

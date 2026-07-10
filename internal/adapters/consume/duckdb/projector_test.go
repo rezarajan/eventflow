@@ -8,6 +8,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
+
+	"github.com/datascape/eventflow/internal/contracts/registry"
 )
 
 func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {
@@ -17,10 +19,11 @@ func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {
 		t.Fatalf("open duckdb: %v", err)
 	}
 	projector := NewWithDB(Config{Path: ":memory:"}, db)
+	projector.registry = duckdbTestRegistry(t)
 	if err := projector.Open(ctx); err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	evt := duckdbTestEvent(t, "evt-1", "attendance.submitted.v1")
+	evt := duckdbTestEvent(t, "evt-1", "example.created.v1")
 	if err := projector.HandleBatch(ctx, []cloudevents.Event{evt, evt}); err != nil {
 		t.Fatalf("HandleBatch returned error: %v", err)
 	}
@@ -45,10 +48,25 @@ func TestProjectorStoresUnknownEventsOnlyInRawTable(t *testing.T) {
 		t.Fatalf("Handle returned error: %v", err)
 	}
 	assertCount(t, db, "_raw_events", 1)
-	assertCount(t, db, "attendance", 0)
 	if err := projector.Close(ctx); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+}
+
+func duckdbTestRegistry(t *testing.T) registry.Registry {
+	t.Helper()
+	registered, err := registry.New([]registry.Event{{
+		Type:    "example.created.v1",
+		Schema:  "attendance-submitted.v1.schema.json",
+		Channel: "example.events.v1",
+		Projection: registry.Projection{
+			Table: "attendance",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("registry.New returned error: %v", err)
+	}
+	return registered
 }
 
 func duckdbTestEvent(t *testing.T, id string, eventType string) cloudevents.Event {

@@ -1,4 +1,4 @@
-profile: datascape.cloudevents.extensions.v1
+profile: eventflow.cloudevents.extensions.v1
 extensions:
   datasettier:
     type: string
@@ -14,4 +14,4 @@ extensions:
     format: uuid
   tenant:
     type: string
-    default: datascape-local
+    default: eventflow-local

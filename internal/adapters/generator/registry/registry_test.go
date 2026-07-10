@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/ports/generator"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/ports/generator"
 )
 
 // TestRegistryRegistersCreatesAndSortsGenerators verifies normal generator registry behavior.
@@ -58,13 +58,13 @@ func TestRegistryRejectsUnknownGenerator(t *testing.T) {
 	}
 }
 
-// TestDefaultsRegistersSchoolGenerator verifies the built-in registry exposes the demo school generator.
-func TestDefaultsRegistersSchoolGenerator(t *testing.T) {
+// TestDefaultsStartsEmpty verifies core defaults do not register domain-specific generators.
+func TestDefaultsStartsEmpty(t *testing.T) {
 	registry, err := Defaults()
 	if err != nil {
 		t.Fatalf("Defaults returned error: %v", err)
 	}
-	if len(registry.Names()) != 1 || registry.Names()[0] != "demo.school.v1" {
+	if len(registry.Names()) != 0 {
 		t.Fatalf("unexpected defaults: %v", registry.Names())
 	}
 }

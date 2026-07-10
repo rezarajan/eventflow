@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	core "github.com/datascape/lakehouse-poc/internal/lineage"
+	core "github.com/datascape/eventflow/internal/lineage"
 )
 
 // TestNewEmitterRejectsUnknownOutput verifies unsupported lineage outputs fail fast.

@@ -110,13 +110,13 @@ type Config struct {
 // FromEnv builds lineage configuration from environment variables.
 func FromEnv() Config {
 	return Config{
-		Output:     envString("DATASCAPE_LINEAGE_OUTPUT", "noop"),
-		File:       envString("DATASCAPE_LINEAGE_FILE", "var/datascape/lineage/openlineage.ndjson"),
-		Namespace:  envString("DATASCAPE_LINEAGE_NAMESPACE", "datascape"),
-		Producer:   envString("DATASCAPE_LINEAGE_PRODUCER", DefaultProducer),
-		SchemaURL:  envString("DATASCAPE_LINEAGE_SCHEMA_URL", DefaultSchemaURL),
-		MarquezURL: envString("DATASCAPE_MARQUEZ_URL", "http://localhost:5000"),
-		Timeout:    envDuration("DATASCAPE_MARQUEZ_TIMEOUT", 10*time.Second),
+		Output:     envString("EVENTFLOW_LINEAGE_OUTPUT", envString("DATASCAPE_LINEAGE_OUTPUT", "noop")),
+		File:       envString("EVENTFLOW_LINEAGE_FILE", envString("DATASCAPE_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson")),
+		Namespace:  envString("EVENTFLOW_LINEAGE_NAMESPACE", envString("DATASCAPE_LINEAGE_NAMESPACE", "eventflow")),
+		Producer:   envString("EVENTFLOW_LINEAGE_PRODUCER", envString("DATASCAPE_LINEAGE_PRODUCER", DefaultProducer)),
+		SchemaURL:  envString("EVENTFLOW_LINEAGE_SCHEMA_URL", envString("DATASCAPE_LINEAGE_SCHEMA_URL", DefaultSchemaURL)),
+		MarquezURL: envString("EVENTFLOW_MARQUEZ_URL", envString("DATASCAPE_MARQUEZ_URL", "http://localhost:5000")),
+		Timeout:    envDuration("EVENTFLOW_MARQUEZ_TIMEOUT", envDuration("DATASCAPE_MARQUEZ_TIMEOUT", 10*time.Second)),
 	}
 }
 
@@ -128,7 +128,7 @@ func NewEmitter(config Config) (Emitter, error) {
 	case "file":
 		file := config.File
 		if file == "" {
-			file = "var/datascape/lineage/openlineage.ndjson"
+			file = "var/eventflow/lineage/openlineage.ndjson"
 		}
 		return FileEmitter{Path: file}, nil
 	default:
@@ -252,7 +252,7 @@ func (r *NDJSONReader) Close() error {
 }
 
 // DefaultProducer identifies this project as the producer of lineage metadata.
-const DefaultProducer = "github.com/datascape/lakehouse-poc"
+const DefaultProducer = "github.com/datascape/eventflow"
 
 // DefaultSchemaURL identifies the OpenLineage schema version used for emitted events.
 const DefaultSchemaURL = "https://openlineage.io/spec/1-0-5/OpenLineage.json"

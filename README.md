@@ -1,176 +1,68 @@
-# Datascape Lakehouse PoC
+# Eventflow
 
-Datascape Lakehouse PoC is a Go proof-of-concept for deterministic CloudEvents generation, Redpanda fan-out, bounded event consumption, local materialization, text object projection, and local OpenLineage tracking.
+Eventflow is a small Go runtime for standards-based event ingress, fan-out, consumption, local projection, and lineage emission.
 
-The project is intentionally incremental. It currently uses local JSONL tables and local text files as replaceable stand-ins for later storage systems. Audit, PDF generation, Marquez, MinIO/S3, Iceberg, and PostgreSQL are not required for this increment.
+Domain teams bring their own event registry and JSON Schemas. Eventflow validates producer payloads, wraps them as CloudEvents, publishes them to configured channels, and emits OpenLineage metadata separately.
 
-## Architecture
+## Principles
 
-```mermaid
-flowchart LR
-    G[datascape-generate] -->|CloudEvents JSONL on stdout| F[datascape-fanout]
-    F -->|CloudEvents JSON| R[(Redpanda topic<br/>datascape.events.v1)]
-    F -->|structured logs| L[log output]
-    R --> C[datascape-consume]
-    C --> J[JSONL projector]
-    C --> O[text object projector]
-    J --> JT[(var/datascape/materialized/*.jsonl)]
-    O --> OT[(var/datascape/objects/*.txt)]
+- Configuration comes from environment variables or command flags.
+- Domain contracts are external registry files, not compiled defaults.
+- Commands are small and composable.
+- Logs go to stderr; data goes to stdout where a command streams data.
+- Backing services such as Redpanda, DuckDB, and Marquez are attached by config.
 
-    G -. OpenLineage .-> OL[(var/datascape/lineage/openlineage.ndjson)]
-    F -. OpenLineage .-> OL
-    C -. OpenLineage .-> OL
-    J -. OpenLineage .-> OL
-    O -. OpenLineage .-> OL
-    OL --> LR[datascape-lineage-replay]
-    LR --> M[(Marquez<br/>OpenLineage API)]
+## Event Registry
+
+Every runtime path that needs domain knowledge reads `EVENTFLOW_REGISTRY`.
+
+```yaml
+version: eventflow.registry.v1
+events:
+  - type: example.created.v1
+    schema: ./schemas/example-created.v1.schema.json
+    channel: example.events.v1
+    projection:
+      table: examples
 ```
 
-CloudEvents are business/domain events. OpenLineage events are separate operational metadata about jobs, runs, inputs, and outputs. The code does not mutate CloudEvents with lineage fields.
+`schema` points to a JSON Schema document. `channel` is the canonical broker topic/channel. `projection.table` is optional; DuckDB always writes `_raw_events` and creates typed tables only when this field is present.
 
-Producer-facing ingress keeps that boundary explicit: domains can post plain JSON payloads to HTTP while the platform validates payloads, wraps them as CloudEvents, publishes to Redpanda, and emits OpenLineage separately.
+## Quickstart
 
-Stable lineage path:
-
-```text
-datascape-generate
-  -> datascape-generate/stdout/events
-  -> datascape-fanout
-  -> redpanda://localhost:19092/datascape.events.v1
-  -> datascape-consume
-  -> file://var/datascape/materialized/tables/
-  -> file://var/datascape/objects/documents/
-```
-
-## Runtime Flow
-
-`datascape-generate`:
-
-- selects a registered generator by name;
-- streams domain-neutral facts through Go channels;
-- maps facts to `github.com/cloudevents/sdk-go/v2.Event`;
-- writes CloudEvents JSONL to stdout;
-- emits OpenLineage START/COMPLETE/FAIL metadata when configured.
-
-`datascape-fanout`:
-
-- reads CloudEvents JSONL from stdin;
-- opens configured output adapters;
-- gives each output adapter its own bounded worker goroutine;
-- batches events for adapters that implement `BatchPublisher`;
-- publishes to Redpanda, logs, stdout, or discard adapters;
-- emits OpenLineage metadata for stdin input and configured outputs.
-
-`datascape-consume`:
-
-- consumes CloudEvents from Redpanda through a generic event source port;
-- supports bounded consumption for demos through max event limits;
-- dispatches events or batches to configured handler/projector adapters;
-- materializes JSONL tables, text object artifacts, and DuckDB tables;
-- emits OpenLineage metadata for the consumer and projector steps.
-
-`datascape-ingress-http`:
-
-- exposes `POST /v1/events/{event_type}` for plain JSON domain payloads;
-- validates payloads against the event JSON Schemas;
-- wraps payloads with CloudEvents metadata and correlation headers;
-- publishes canonical CloudEvents to Redpanda catalog topics;
-- emits OpenLineage metadata for the ingress publication step.
-
-`datascape-lineage-replay`:
-
-- reads persisted OpenLineage NDJSON;
-- emits each event to a configured lineage transport;
-- is intended for replaying local lineage into Marquez without re-running the CloudEvents pipeline.
-
-## Repository Layout
-
-- `cmd/datascape-generate`: generator CLI composition.
-- `cmd/datascape-fanout`: fan-out CLI composition.
-- `cmd/datascape-consume`: consumer CLI composition.
-- `cmd/datascape-ingress-http`: producer-friendly HTTP ingress composition.
-- `internal/app/generate`: generation orchestration.
-- `internal/app/fanout`: fan-out orchestration, batching, workers, publisher lifecycle.
-- `internal/app/consume`: bounded consumption and handler dispatch.
-- `internal/app/ingest`: producer payload validation, CloudEvents wrapping, and publish orchestration.
-- `internal/contracts/event`: facts, CloudEvents factory, JSONL codec, summaries.
-- `internal/ports/generator`: generator interfaces.
-- `internal/ports/fanout`: publisher interfaces.
-- `internal/ports/consume`: event source and handler/projector interfaces.
-- `internal/adapters/generator`: generator registry and demo school generator.
-- `internal/adapters/fanout`: log, stdout, discard, and Redpanda publishers.
-- `internal/adapters/consume`: handler registry, Redpanda source, JSONL projector, text object projector, DuckDB projector.
-- `internal/lineage`: local OpenLineage-compatible events and emitters.
-- `internal/adapters/lineage`: lineage emitter factory, Marquez HTTP emitter, NDJSON reader adapter.
-- `contracts`: schema and standards contracts.
-- `docs/architecture/adr`: architecture decision records.
-- `docs/standards/standards-register.md`: standards boundary register.
-- `scripts`: demo automation used by `just`.
-
-## Requirements
-
-- Go 1.24 or newer.
-- `just` for recipe shortcuts.
-- Docker Compose for Redpanda-backed demos.
-
-Unit tests do not require Docker, Redpanda, network services, Marquez, MinIO, or PostgreSQL.
-
-## Quick Start
-
-Fetch dependencies:
+Validate the example registry:
 
 ```bash
-go mod download
-go mod tidy
+go run ./cmd/eventflow-registry validate --registry examples/school/eventflow.yaml
 ```
 
-Run unit tests:
-
-```bash
-go test ./...
-```
-
-Generate CloudEvents only:
-
-```bash
-go run ./cmd/datascape-generate --generator demo.school.v1
-```
-
-Run the local log-only pipeline:
-
-```bash
-just run-demo
-```
-
-Run the Redpanda fan-out demo:
+Start local infrastructure:
 
 ```bash
 just up
-just create-redpanda-topic
-just run-redpanda-demo
 ```
 
-Run the full lineage and materialization demo:
+Create a topic for the example event:
 
 ```bash
-just run-lineage-demo
+docker compose exec redpanda rpk topic create attendance.events.v1 -X brokers=localhost:9092 --partitions 3 --replicas 1
 ```
 
-Serve the HTTP ingress API:
+Start HTTP ingress:
 
 ```bash
-just up
-just create-catalog-topics
-DATASCAPE_REDPANDA_TOPIC_MODE=catalog just ingress-http
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+EVENTFLOW_REDPANDA_TOPIC_MODE=registry \
+go run ./cmd/eventflow-ingress-http
 ```
 
-Publish a plain JSON domain event:
+Publish a plain JSON payload:
 
 ```bash
 curl -i -X POST http://localhost:8080/v1/events/attendance.submitted.v1 \
   -H 'content-type: application/json' \
-  -H 'X-Datascape-Subject: student-22222222' \
-  -H 'X-Correlation-ID: demo-correlation-1' \
+  -H 'X-Eventflow-Subject: student-22222222' \
+  -H 'X-Correlation-ID: quickstart-1' \
   -d '{
     "attendance_id": "11111111-1111-1111-1111-111111111111",
     "student_id": "22222222-2222-2222-2222-222222222222",
@@ -185,182 +77,232 @@ curl -i -X POST http://localhost:8080/v1/events/attendance.submitted.v1 \
 Consume into DuckDB:
 
 ```bash
-DATASCAPE_CONSUME_HANDLERS=jsonl,objects,duckdb \
-DATASCAPE_REDPANDA_TOPIC=attendance.events.v1 \
-DATASCAPE_CONSUME_MAX_EVENTS=1 \
-go run ./cmd/datascape-consume
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+EVENTFLOW_REDPANDA_TOPIC=attendance.events.v1 \
+EVENTFLOW_CONSUME_HANDLERS=duckdb \
+EVENTFLOW_CONSUME_MAX_EVENTS=1 \
+go run ./cmd/eventflow-consume
 ```
 
-Run the full demo and replay OpenLineage into Marquez:
+Stop infrastructure:
 
 ```bash
-just run-marquez-demo
-```
-
-The lineage demo:
-
-- starts Redpanda and Redpanda Console;
-- waits for Redpanda using `rpk cluster health -X brokers=localhost:9092 | grep -E 'Healthy:.+true' || exit 1`;
-- creates `datascape.events.v1` if missing;
-- generates deterministic CloudEvents;
-- fans out to Redpanda and logs;
-- consumes a bounded event set;
-- writes JSONL tables to `var/datascape/materialized`;
-- writes text artifacts to `var/datascape/objects`;
-- writes OpenLineage NDJSON to `var/datascape/lineage/openlineage.ndjson`;
-- exits cleanly.
-
-## Commands
-
-```bash
-just test
-just deps
-just up
-just create-redpanda-topic
-just create-catalog-topics
-just generate
-just fanout-log
-just fanout-redpanda
-just ingress-http
-just run-demo
-just run-redpanda-demo
-just run-materialize-demo
-just run-lineage-demo
-just run-ingress-duckdb-demo
-just run-marquez-demo
-just consume-redpanda
 just down
 ```
 
-Direct examples:
+## AsyncAPI
+
+Render an AsyncAPI 3.1 document from any registry:
 
 ```bash
-go run ./cmd/datascape-generate --generator demo.school.v1 \
-  | go run ./cmd/datascape-fanout --outputs log
+go run ./cmd/eventflow-registry asyncapi \
+  --registry examples/school/eventflow.yaml \
+  --output examples/school/contracts/asyncapi/asyncapi.yaml
 ```
 
-```bash
-DATASCAPE_REDPANDA_BROKERS=localhost:19092 \
-DATASCAPE_REDPANDA_TOPIC=datascape.events.v1 \
-DATASCAPE_OUTPUTS=redpanda,log \
-go run ./cmd/datascape-generate --generator demo.school.v1 \
-  | go run ./cmd/datascape-fanout --outputs redpanda,log
-```
+Use `--output -` or omit `--output` to write to stdout.
+
+## Lineage And Marquez
+
+Commands emit OpenLineage independently from event publication. Set
+`EVENTFLOW_LINEAGE_OUTPUT=file` while running ingress, fanout, consume, or
+generate to keep an append-only local lineage file:
 
 ```bash
-DATASCAPE_REDPANDA_BROKERS=localhost:19092 \
-DATASCAPE_REDPANDA_TOPIC=datascape.events.v1 \
-DATASCAPE_REDPANDA_CONSUMER_GROUP=datascape-consume-demo \
-DATASCAPE_CONSUME_HANDLERS=jsonl,objects \
-DATASCAPE_CONSUME_MAX_EVENTS=102 \
-go run ./cmd/datascape-consume
+EVENTFLOW_LINEAGE_OUTPUT=file \
+EVENTFLOW_LINEAGE_FILE=var/eventflow/lineage/openlineage.ndjson \
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+go run ./cmd/eventflow-ingress-http
 ```
+
+Start Marquez locally:
+
+```bash
+just up-marquez
+```
+
+Replay the local OpenLineage file into Marquez:
+
+```bash
+EVENTFLOW_LINEAGE_OUTPUT=marquez \
+EVENTFLOW_MARQUEZ_URL=http://localhost:5000 \
+go run ./cmd/eventflow-lineage-replay \
+  --file var/eventflow/lineage/openlineage.ndjson
+```
+
+The same Marquez settings can be used directly on runtime commands to post
+lineage as they run:
+
+```bash
+EVENTFLOW_LINEAGE_OUTPUT=marquez \
+EVENTFLOW_MARQUEZ_URL=http://localhost:5000 \
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+go run ./cmd/eventflow-ingress-http
+```
+
+Marquez UI is exposed at `http://localhost:3000` by the provided Compose file.
+
+## Commands
+
+Each command has a detailed `-help` page. The examples below use `go run`, but
+the same flags apply to installed binaries.
+
+### `eventflow-registry`
+
+Validate registry structure and local schema file references:
+
+```bash
+go run ./cmd/eventflow-registry validate --registry examples/school/eventflow.yaml
+```
+
+Emit AsyncAPI:
+
+```bash
+go run ./cmd/eventflow-registry asyncapi \
+  --registry examples/school/eventflow.yaml \
+  --output -
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--registry` | `EVENTFLOW_REGISTRY` | none | Registry YAML path. |
+| `--output` | none | `-` | AsyncAPI output path for the `asyncapi` command. |
+
+### `eventflow-ingress-http`
+
+Accept producer JSON over HTTP, validate it against the registered schema, wrap
+it as a CloudEvent, and publish it to Redpanda/Kafka:
+
+```bash
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+EVENTFLOW_REDPANDA_TOPIC_MODE=registry \
+go run ./cmd/eventflow-ingress-http --addr :8080
+```
+
+Producer endpoint:
+
+```text
+POST /v1/events/{event_type}
+Content-Type: application/json
+X-Eventflow-Subject: optional subject
+X-Correlation-ID: optional correlation id
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--addr` | `EVENTFLOW_INGRESS_HTTP_ADDR` | `:8080` | HTTP listen address. |
+| `--registry` | `EVENTFLOW_REGISTRY` | none | Registry YAML path. |
+| `--max-body` | `EVENTFLOW_INGRESS_MAX_BODY` | `1048576` | Maximum request body size in bytes. |
+
+### `eventflow-fanout`
+
+Read CloudEvents JSON Lines from stdin and publish them to one or more outputs:
+
+```bash
+EVENTFLOW_OUTPUTS=redpanda \
+EVENTFLOW_REDPANDA_TOPIC_MODE=registry \
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+go run ./cmd/eventflow-fanout < events.ndjson
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--outputs` | `EVENTFLOW_OUTPUTS` | `log` | Comma-separated outputs: `log`, `stdout`, `discard`, `redpanda`. |
+| `--run-id` | `EVENTFLOW_RUN_ID` | generated | Lineage run id. |
+| `--batch-size` | `EVENTFLOW_FANOUT_BATCH_SIZE` | `100` | Batch size for batch-capable outputs. |
+
+### `eventflow-consume`
+
+Consume CloudEvents and apply handlers:
+
+```bash
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
+EVENTFLOW_REDPANDA_TOPIC=attendance.events.v1 \
+EVENTFLOW_CONSUME_HANDLERS=duckdb \
+go run ./cmd/eventflow-consume --max-events 1
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--source` | `EVENTFLOW_CONSUME_SOURCE` | `redpanda` | Source adapter. |
+| `--handlers` | `EVENTFLOW_CONSUME_HANDLERS` | `jsonl` | Comma-separated handlers: `jsonl`, `objects`, `duckdb`. |
+| `--run-id` | `EVENTFLOW_RUN_ID` | generated | Lineage run id. |
+| `--batch-size` | `EVENTFLOW_CONSUME_BATCH_SIZE` | `100` | Events read and handled per batch. |
+| `--max-events` | `EVENTFLOW_CONSUME_MAX_EVENTS` | `0` | Maximum events before exit; `0` means unbounded. |
+
+### `eventflow-lineage-replay`
+
+Replay OpenLineage NDJSON to the configured lineage backend:
+
+```bash
+EVENTFLOW_LINEAGE_OUTPUT=marquez \
+EVENTFLOW_MARQUEZ_URL=http://localhost:5000 \
+go run ./cmd/eventflow-lineage-replay \
+  --file var/eventflow/lineage/openlineage.ndjson
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--file` | `EVENTFLOW_LINEAGE_FILE` | `var/eventflow/lineage/openlineage.ndjson` | OpenLineage NDJSON file to replay. |
+| `--limit` | `EVENTFLOW_LINEAGE_REPLAY_LIMIT` | `0` | Maximum events to replay; `0` means all. |
+
+### `eventflow-generate`
+
+Stream CloudEvents JSON Lines from a registered generator. The core runtime does
+not compile in domain generators by default; downstream examples or services
+should register their own generators.
+
+```bash
+go run ./cmd/eventflow-generate --generator domain-generator --param count=10
+```
+
+Flags:
+
+| Flag | Environment | Default | Purpose |
+| --- | --- | --- | --- |
+| `--generator` | `EVENTFLOW_GENERATOR` | none | Registered generator name. |
+| `--run-id` | `EVENTFLOW_RUN_ID` | generated | Lineage run id. |
+| `--seed` | `EVENTFLOW_SEED` | `42` | Deterministic generator seed. |
+| `--source` | `EVENTFLOW_EVENT_SOURCE` | `urn:eventflow:generate` | CloudEvents source. |
+| `--param` | none | none | Generator parameter as `key=value`; repeatable. |
 
 ## Configuration
 
-Generator:
+Preferred environment variables use the `EVENTFLOW_` prefix. Existing `DATASCAPE_` names are accepted as deprecated aliases during the transition.
 
 ```text
-DATASCAPE_GENERATOR=demo.school.v1
-DATASCAPE_RUN_ID=run-...
-DATASCAPE_SEED=42
-DATASCAPE_EVENT_SOURCE=urn:datascape:generate
+EVENTFLOW_REGISTRY=examples/school/eventflow.yaml
+EVENTFLOW_REDPANDA_BROKERS=localhost:19092
+EVENTFLOW_REDPANDA_TOPIC=attendance.events.v1
+EVENTFLOW_REDPANDA_TOPIC_MODE=registry
+EVENTFLOW_CONSUME_HANDLERS=duckdb
+EVENTFLOW_DUCKDB_PATH=var/eventflow/eventflow.duckdb
+EVENTFLOW_LINEAGE_OUTPUT=noop
+EVENTFLOW_LINEAGE_FILE=var/eventflow/lineage/openlineage.ndjson
 ```
 
-Fan-out:
+## Examples
 
-```text
-DATASCAPE_OUTPUTS=redpanda,log
-DATASCAPE_FANOUT_BATCH_SIZE=100
-```
+The school domain under `examples/school` is an example registration, not a runtime default. It contains payload schemas, sample DDL, a sample registry, and example commands.
 
-Redpanda publisher and consumer:
-
-```text
-DATASCAPE_REDPANDA_BROKERS=localhost:19092
-DATASCAPE_REDPANDA_TOPIC=datascape.events.v1
-DATASCAPE_REDPANDA_TOPIC_MODE=single
-DATASCAPE_REDPANDA_BATCH_SIZE=100
-DATASCAPE_REDPANDA_CONSUMER_GROUP=datascape-consume-demo
-DATASCAPE_REDPANDA_CONSUMER_START_OFFSET=first
-```
-
-Consumer and projectors:
-
-```text
-DATASCAPE_CONSUME_SOURCE=redpanda
-DATASCAPE_CONSUME_HANDLERS=jsonl,objects
-DATASCAPE_CONSUME_BATCH_SIZE=100
-DATASCAPE_CONSUME_MAX_EVENTS=102
-DATASCAPE_JSONL_DIR=var/datascape/materialized
-DATASCAPE_OBJECT_DIR=var/datascape/objects
-DATASCAPE_DUCKDB_PATH=var/datascape/datascape.duckdb
-```
-
-HTTP ingress:
-
-```text
-DATASCAPE_INGRESS_HTTP_ADDR=:8080
-DATASCAPE_INGRESS_MAX_BODY=1048576
-DATASCAPE_REDPANDA_TOPIC_MODE=catalog
-```
-
-Lineage:
-
-```text
-DATASCAPE_LINEAGE_OUTPUT=noop
-DATASCAPE_LINEAGE_OUTPUT=file
-DATASCAPE_LINEAGE_OUTPUT=marquez
-DATASCAPE_LINEAGE_FILE=var/datascape/lineage/openlineage.ndjson
-DATASCAPE_LINEAGE_NAMESPACE=datascape
-DATASCAPE_LINEAGE_PRODUCER=github.com/datascape/lakehouse-poc
-DATASCAPE_LINEAGE_SCHEMA_URL=https://openlineage.io/spec/1-0-5/OpenLineage.json
-DATASCAPE_LINEAGE_REPLAY_LIMIT=0
-DATASCAPE_MARQUEZ_URL=http://localhost:5000
-DATASCAPE_MARQUEZ_TIMEOUT=10s
-```
-
-`DATASCAPE_LINEAGE_OUTPUT=noop` is the default. Use `file` for local demo lineage output and `marquez` to post OpenLineage events to Marquez at `/api/v1/lineage`.
-
-Replay existing local lineage into Marquez:
+## Development
 
 ```bash
-DATASCAPE_LINEAGE_OUTPUT=marquez \
-DATASCAPE_MARQUEZ_URL=http://localhost:5000 \
-go run ./cmd/datascape-lineage-replay --file var/datascape/lineage/openlineage.ndjson
+just test
 ```
 
-## Materialized Outputs
-
-The JSONL projector writes simple local tables:
-
-- `schools.jsonl`
-- `classes.jsonl`
-- `students.jsonl`
-- `attendance.jsonl`
-- `grades.jsonl`
-- `documents.jsonl`
-
-The text object projector writes `.txt` artifacts for `document.uploaded.v1`. It does not generate PDFs. The local file boundary is intentionally replaceable by MinIO/S3 later.
-
-## Testing
-
-Run:
+If the default Go cache is not writable in a sandbox, use:
 
 ```bash
-go test ./...
+GOCACHE=/tmp/eventflow-go-build-cache go test ./...
 ```
-
-Tests use fake sources, publishers, handlers, stores, and lineage emitters. Filesystem tests use `t.TempDir()` where needed. Default tests must not require Redpanda, Docker, network services, Marquez, MinIO, PostgreSQL, or Iceberg.
-
-## Design Rules
-
-- CloudEvents are domain events.
-- OpenLineage events are operational metadata.
-- Do not mutate CloudEvents with lineage fields.
-- Keep commands thin; business behavior belongs in app services and adapters.
-- Core app packages depend on ports and contracts, not concrete Redpanda or file adapters.
-- Domain-specific event-to-table mapping belongs in projector adapters.
-- Redpanda topic creation is demo automation, not application behavior.
-- Keep local JSONL and text object outputs replaceable.
-- Audit, PDF generation, Marquez, MinIO/S3, Iceberg, and PostgreSQL are out of scope for this increment.

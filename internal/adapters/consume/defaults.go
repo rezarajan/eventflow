@@ -1,10 +1,10 @@
 package consume
 
 import (
-	"github.com/datascape/lakehouse-poc/internal/adapters/consume/documents"
-	"github.com/datascape/lakehouse-poc/internal/adapters/consume/duckdb"
-	"github.com/datascape/lakehouse-poc/internal/adapters/consume/jsonl"
-	port "github.com/datascape/lakehouse-poc/internal/ports/consume"
+	"github.com/datascape/eventflow/internal/adapters/consume/documents"
+	"github.com/datascape/eventflow/internal/adapters/consume/duckdb"
+	"github.com/datascape/eventflow/internal/adapters/consume/jsonl"
+	port "github.com/datascape/eventflow/internal/ports/consume"
 )
 
 // Defaults constructs a handler registry for CLI use without imposing a storage backend in core code.

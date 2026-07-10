@@ -1,0 +1,52 @@
+version: eventflow.registry.v1
+events:
+  - type: school.registered.v1
+    schema: ./contracts/events/payloads/school-registered.v1.schema.json
+    channel: school.events.v1
+    projection:
+      table: schools
+  - type: class.created.v1
+    schema: ./contracts/events/payloads/class-created.v1.schema.json
+    channel: school.events.v1
+    projection:
+      table: classes
+  - type: student.enrolled.v1
+    schema: ./contracts/events/payloads/student-enrolled.v1.schema.json
+    channel: student.events.v1
+    projection:
+      table: students
+  - type: attendance.submitted.v1
+    schema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
+    channel: attendance.events.v1
+    projection:
+      table: attendance
+  - type: attendance.corrected.v1
+    schema: ./contracts/events/payloads/attendance-corrected.v1.schema.json
+    channel: attendance.events.v1
+    projection:
+      table: attendance
+  - type: exam-paper.uploaded.v1
+    schema: ./contracts/events/payloads/exam-paper-uploaded.v1.schema.json
+    channel: assessment.events.v1
+    projection:
+      table: exam_papers
+  - type: grade.recorded.v1
+    schema: ./contracts/events/payloads/grade-recorded.v1.schema.json
+    channel: assessment.events.v1
+    projection:
+      table: grades
+  - type: document.uploaded.v1
+    schema: ./contracts/events/payloads/document-uploaded.v1.schema.json
+    channel: document.events.v1
+    projection:
+      table: documents
+  - type: document.checksummed.v1
+    schema: ./contracts/events/payloads/document-checksummed.v1.schema.json
+    channel: document.events.v1
+    projection:
+      table: documents
+  - type: audit.event.recorded.v1
+    schema: ./contracts/events/payloads/audit-event-recorded.v1.schema.json
+    channel: audit.events.v1
+    projection:
+      table: audit_events

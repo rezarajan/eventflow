@@ -12,9 +12,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	port "github.com/datascape/lakehouse-poc/internal/ports/fanout"
-	"github.com/datascape/lakehouse-poc/internal/testkit/fakes"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	port "github.com/datascape/eventflow/internal/ports/fanout"
+	"github.com/datascape/eventflow/internal/testkit/fakes"
 )
 
 // TestServiceBroadcastsToAllPublishers verifies that fan-out broadcasts instead of load-balancing.

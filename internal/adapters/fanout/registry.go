@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/datascape/lakehouse-poc/internal/ports/fanout"
+	"github.com/datascape/eventflow/internal/ports/fanout"
 )
 
 // Constructor creates a publisher adapter.

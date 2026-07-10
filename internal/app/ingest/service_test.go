@@ -8,8 +8,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/contracts/registry"
+	"github.com/datascape/eventflow/internal/lineage"
 )
 
 func TestServicePublishesValidatedCloudEvent(t *testing.T) {
@@ -17,7 +18,7 @@ func TestServicePublishesValidatedCloudEvent(t *testing.T) {
 	validator := &fakeValidator{}
 	emitter := &fakeLineageEmitter{}
 	service := Service{
-		Catalog:   event.DefaultCatalog(),
+		Registry:  testRegistry(t),
 		Factory:   event.NewFactory("", "urn:test:ingress", fixedIngestTime),
 		Validator: validator,
 		Publisher: publisher,
@@ -25,7 +26,7 @@ func TestServicePublishesValidatedCloudEvent(t *testing.T) {
 		Now:       fixedIngestTime,
 	}
 	result, err := service.Publish(context.Background(), PublishRequest{
-		EventType:     "attendance.submitted.v1",
+		EventType:     "example.created.v1",
 		Subject:       "student-1",
 		CorrelationID: "corr-1",
 		Payload:       map[string]any{"attendance_id": "att-1"},
@@ -33,7 +34,7 @@ func TestServicePublishesValidatedCloudEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Publish returned error: %v", err)
 	}
-	if result.EventType != "attendance.submitted.v1" || result.Topic != "attendance.events.v1" {
+	if result.EventType != "example.created.v1" || result.Channel != "example.events.v1" {
 		t.Fatalf("unexpected publish result: %+v", result)
 	}
 	if len(publisher.events) != 1 {
@@ -51,7 +52,7 @@ func TestServicePublishesValidatedCloudEvent(t *testing.T) {
 }
 
 func TestServiceReturnsValidationErrorForUnknownType(t *testing.T) {
-	service := Service{Catalog: event.DefaultCatalog(), Publisher: &fakePublisher{}}
+	service := Service{Registry: testRegistry(t), Publisher: &fakePublisher{}}
 	_, err := service.Publish(context.Background(), PublishRequest{EventType: "missing.v1", Payload: map[string]any{}})
 	if !IsValidationError(err) {
 		t.Fatalf("expected validation error, got %v", err)
@@ -60,11 +61,11 @@ func TestServiceReturnsValidationErrorForUnknownType(t *testing.T) {
 
 func TestServiceReturnsValidationErrorForSchemaFailure(t *testing.T) {
 	service := Service{
-		Catalog:   event.DefaultCatalog(),
+		Registry:  testRegistry(t),
 		Validator: &fakeValidator{err: errors.New("required field missing")},
 		Publisher: &fakePublisher{},
 	}
-	_, err := service.Publish(context.Background(), PublishRequest{EventType: "attendance.submitted.v1", Payload: map[string]any{}})
+	_, err := service.Publish(context.Background(), PublishRequest{EventType: "example.created.v1", Payload: map[string]any{}})
 	if !IsValidationError(err) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -75,7 +76,7 @@ type fakeValidator struct {
 	err   error
 }
 
-func (v *fakeValidator) Validate(ctx context.Context, spec event.Spec, payload map[string]any) error {
+func (v *fakeValidator) Validate(ctx context.Context, spec registry.Event, payload map[string]any) error {
 	v.calls++
 	return v.err
 }
@@ -113,4 +114,17 @@ func (e *fakeLineageEmitter) Emit(ctx context.Context, event lineage.Event) erro
 
 func fixedIngestTime() time.Time {
 	return time.Date(2026, 7, 9, 1, 0, 0, 0, time.UTC)
+}
+
+func testRegistry(t *testing.T) registry.Registry {
+	t.Helper()
+	registered, err := registry.New([]registry.Event{{
+		Type:    "example.created.v1",
+		Schema:  "attendance-submitted.v1.schema.json",
+		Channel: "example.events.v1",
+	}})
+	if err != nil {
+		t.Fatalf("registry.New returned error: %v", err)
+	}
+	return registered
 }

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/datascape/lakehouse-poc/internal/adapters/lineage/marquez"
-	core "github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/adapters/lineage/marquez"
+	core "github.com/datascape/eventflow/internal/lineage"
 )
 
 // NewEmitter constructs a lineage emitter from configuration.
@@ -19,7 +19,7 @@ func NewEmitter(config core.Config) (core.Emitter, error) {
 	case "file":
 		file := config.File
 		if file == "" {
-			file = "var/datascape/lineage/openlineage.ndjson"
+			file = "var/eventflow/lineage/openlineage.ndjson"
 		}
 		emitter = core.FileEmitter{Path: file}
 	case "marquez":

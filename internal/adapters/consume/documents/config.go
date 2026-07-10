@@ -13,13 +13,13 @@ type Config struct {
 
 // FromEnv builds document artifact configuration from environment variables.
 func FromEnv() Config {
-	return Config{Dir: envString("DATASCAPE_OBJECT_DIR", "var/datascape/objects")}
+	return Config{Dir: envString("EVENTFLOW_OBJECT_DIR", envString("DATASCAPE_OBJECT_DIR", "var/eventflow/objects"))}
 }
 
 // normalized returns configuration values with safe defaults applied.
 func (c Config) normalized() Config {
 	if c.Dir == "" {
-		c.Dir = "var/datascape/objects"
+		c.Dir = "var/eventflow/objects"
 	}
 	return c
 }

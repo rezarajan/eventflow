@@ -13,7 +13,7 @@ import (
 
 // TestSourceReadsCloudEventsAndCommits verifies Redpanda messages decode as CloudEvents and are committed.
 func TestSourceReadsCloudEventsAndCommits(t *testing.T) {
-	body := redpandaConsumerEventBody(t, "1", "school.registered.v1")
+	body := redpandaConsumerEventBody(t, "1", "example.created.v1")
 	reader := &fakeReader{messages: []kafka.Message{{Value: body}}}
 	source := NewWithDependencies(Config{Brokers: []string{"broker:9092"}, Topic: "events", GroupID: "group"}, fakeReaderFactory{reader: reader})
 	if err := source.Open(context.Background()); err != nil {

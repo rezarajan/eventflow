@@ -4,7 +4,7 @@ package generator
 import (
 	"context"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/contracts/event"
 )
 
 // Config contains generic generator settings and adapter-specific parameters.

@@ -20,7 +20,7 @@ type Factory struct {
 // NewFactory constructs an event factory with deterministic metadata defaults.
 func NewFactory(runID string, source string, now func() time.Time) Factory {
 	if source == "" {
-		source = "urn:datascape:generator"
+		source = "urn:eventflow:generator"
 	}
 	if now == nil {
 		now = time.Now
@@ -56,7 +56,7 @@ func (f Factory) FromPayload(metadata Metadata, payload map[string]any) (cloudev
 		source = f.Source
 	}
 	if source == "" {
-		source = "urn:datascape:generator"
+		source = "urn:eventflow:generator"
 	}
 	eventTime := metadata.Time
 	if eventTime.IsZero() {

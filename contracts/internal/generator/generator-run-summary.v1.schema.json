@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:generator-run-summary:v1",
+  "$id": "urn:eventflow:schemas:generator-run-summary:v1",
   "title": "Generator Run Summary V1",
   "type": "object",
   "required": [

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:quality-rule:v1",
+  "$id": "urn:eventflow:schemas:quality-rule:v1",
   "title": "Quality Rule V1",
   "type": "object",
   "required": [

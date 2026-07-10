@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:datascape:schemas:audit-event:v1",
+  "$id": "urn:eventflow:schemas:audit-event:v1",
   "title": "Audit Event V1",
   "type": "object",
   "required": [

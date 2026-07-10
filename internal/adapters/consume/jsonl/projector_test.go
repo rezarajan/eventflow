@@ -9,28 +9,27 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 )
 
-// TestProjectorWritesRowsByTable verifies domain event types route to expected JSONL tables.
-func TestProjectorWritesRowsByTable(t *testing.T) {
+// TestProjectorWritesRawRows verifies all events are materialized without domain-specific routing.
+func TestProjectorWritesRawRows(t *testing.T) {
 	store := &fakeStore{lines: map[string][][]byte{}}
 	projector := NewWithStore(Config{Dir: "ignored"}, store)
 	events := []cloudevents.Event{
-		jsonlTestEvent(t, "1", "school.registered.v1", map[string]any{"school_id": "SCH-001"}),
-		jsonlTestEvent(t, "2", "student.enrolled.v1", map[string]any{"student_id": "S-001"}),
-		jsonlTestEvent(t, "3", "ignored.v1", map[string]any{"id": "ignored"}),
+		jsonlTestEvent(t, "1", "example.created.v1", map[string]any{"example_id": "EX-001"}),
+		jsonlTestEvent(t, "2", "example.updated.v1", map[string]any{"example_id": "EX-001"}),
 	}
 
 	if err := projector.HandleBatch(context.Background(), events); err != nil {
 		t.Fatalf("HandleBatch returned error: %v", err)
 	}
 
-	if len(store.lines["schools.jsonl"]) != 1 || len(store.lines["students.jsonl"]) != 1 {
+	if len(store.lines["_raw_events.jsonl"]) != 2 {
 		t.Fatalf("unexpected table writes: %+v", store.lines)
 	}
 	row := map[string]any{}
-	if err := json.Unmarshal(store.lines["schools.jsonl"][0], &row); err != nil {
+	if err := json.Unmarshal(store.lines["_raw_events.jsonl"][0], &row); err != nil {
 		t.Fatalf("unmarshal row: %v", err)
 	}
-	if row["event_id"] != "1" || row["school_id"] != "SCH-001" {
+	if row["event_id"] != "1" || row["example_id"] != "EX-001" {
 		t.Fatalf("unexpected row: %+v", row)
 	}
 }

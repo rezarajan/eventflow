@@ -4,11 +4,11 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/datascape/lakehouse-poc/internal/adapters/fanout/discard"
-	logadapter "github.com/datascape/lakehouse-poc/internal/adapters/fanout/log"
-	"github.com/datascape/lakehouse-poc/internal/adapters/fanout/redpanda"
-	stdoutadapter "github.com/datascape/lakehouse-poc/internal/adapters/fanout/stdout"
-	port "github.com/datascape/lakehouse-poc/internal/ports/fanout"
+	"github.com/datascape/eventflow/internal/adapters/fanout/discard"
+	logadapter "github.com/datascape/eventflow/internal/adapters/fanout/log"
+	"github.com/datascape/eventflow/internal/adapters/fanout/redpanda"
+	stdoutadapter "github.com/datascape/eventflow/internal/adapters/fanout/stdout"
+	port "github.com/datascape/eventflow/internal/ports/fanout"
 )
 
 // Defaults constructs a publisher registry for CLI use without imposing a storage backend.

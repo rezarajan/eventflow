@@ -1,4 +1,4 @@
-profile: datascape.iceberg.rest.compatibility.v1
+profile: eventflow.iceberg.rest.compatibility.v1
 standard: Apache Iceberg REST Catalog API
 purpose: Catalog boundary for namespaces and Iceberg tables.
 required_operations:

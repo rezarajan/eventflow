@@ -55,18 +55,18 @@ func TestFactoryDefaultsSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromFact returned error: %v", err)
 	}
-	if evt.Source() != "urn:datascape:generator" {
+	if evt.Source() != "urn:eventflow:generator" {
 		t.Fatalf("source = %q, want default", evt.Source())
 	}
 }
 
 // TestFactoryFromPayloadSetsProducerMetadata verifies ingress metadata becomes CloudEvents metadata.
 func TestFactoryFromPayloadSetsProducerMetadata(t *testing.T) {
-	factory := NewFactory("run-1", "urn:datascape:ingress:http", func() time.Time {
+	factory := NewFactory("run-1", "urn:eventflow:ingress:http", func() time.Time {
 		return time.Date(2026, 7, 9, 1, 0, 0, 0, time.UTC)
 	})
 	evt, err := factory.FromPayload(Metadata{
-		Type:          "attendance.submitted.v1",
+		Type:          "example.created.v1",
 		Subject:       "student-1",
 		CorrelationID: "corr-1",
 		CausationID:   "cause-1",
@@ -75,7 +75,7 @@ func TestFactoryFromPayloadSetsProducerMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromPayload returned error: %v", err)
 	}
-	if evt.Source() != "urn:datascape:ingress:http" || evt.Subject() != "student-1" {
+	if evt.Source() != "urn:eventflow:ingress:http" || evt.Subject() != "student-1" {
 		t.Fatalf("unexpected event metadata: source=%s subject=%s", evt.Source(), evt.Subject())
 	}
 	if got := evt.Extensions()["correlationid"]; got != "corr-1" {

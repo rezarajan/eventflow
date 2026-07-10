@@ -13,13 +13,13 @@ type Config struct {
 
 // FromEnv builds JSONL materializer configuration from environment variables.
 func FromEnv() Config {
-	return Config{Dir: envString("DATASCAPE_JSONL_DIR", "var/datascape/materialized")}
+	return Config{Dir: envString("EVENTFLOW_JSONL_DIR", envString("DATASCAPE_JSONL_DIR", "var/eventflow/materialized"))}
 }
 
 // normalized returns configuration values with safe defaults applied.
 func (c Config) normalized() Config {
 	if c.Dir == "" {
-		c.Dir = "var/datascape/materialized"
+		c.Dir = "var/eventflow/materialized"
 	}
 	return c
 }

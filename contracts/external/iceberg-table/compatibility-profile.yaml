@@ -1,4 +1,4 @@
-profile: datascape.iceberg.table.compatibility.v1
+profile: eventflow.iceberg.table.compatibility.v1
 standard: Apache Iceberg table format
 purpose: Durable lakehouse table contract.
 required_capabilities:

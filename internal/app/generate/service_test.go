@@ -11,9 +11,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/ports/generator"
-	"github.com/datascape/lakehouse-poc/internal/testkit/fakes"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/ports/generator"
+	"github.com/datascape/eventflow/internal/testkit/fakes"
 )
 
 // TestServiceUsesGenericGenerator verifies that the service depends on the generator port, not a concrete domain generator.

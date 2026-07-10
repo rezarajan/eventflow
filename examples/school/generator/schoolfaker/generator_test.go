@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/ports/generator"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/ports/generator"
 )
 
 // TestGeneratorIsDeterministic verifies that the same seed and parameters produce identical facts.

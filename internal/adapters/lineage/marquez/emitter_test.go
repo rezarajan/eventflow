@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/datascape/lakehouse-poc/internal/lineage"
+	"github.com/datascape/eventflow/internal/lineage"
 )
 
 // TestEmitterPostsOpenLineageEvent verifies Marquez emission uses the OpenLineage endpoint.

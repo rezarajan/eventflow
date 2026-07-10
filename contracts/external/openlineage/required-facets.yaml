@@ -1,4 +1,4 @@
-profile: datascape.openlineage.facets.v1
+profile: eventflow.openlineage.facets.v1
 standard: OpenLineage facets
 required_facets:
   run:
@@ -21,4 +21,4 @@ recommended_facets:
 custom_facet_policy:
   allowed: true
   condition: Only when standard facets cannot express required synthetic-domain metadata.
-  naming: datascape.<name>.v1
+  naming: eventflow.<name>.v1

@@ -8,19 +8,20 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/datascape/lakehouse-poc/internal/contracts/event"
-	"github.com/datascape/lakehouse-poc/internal/lineage"
-	port "github.com/datascape/lakehouse-poc/internal/ports/fanout"
+	"github.com/datascape/eventflow/internal/contracts/event"
+	"github.com/datascape/eventflow/internal/contracts/registry"
+	"github.com/datascape/eventflow/internal/lineage"
+	port "github.com/datascape/eventflow/internal/ports/fanout"
 )
 
 // Validator validates a producer-submitted domain payload.
 type Validator interface {
-	Validate(ctx context.Context, spec event.Spec, payload map[string]any) error
+	Validate(ctx context.Context, registered registry.Event, payload map[string]any) error
 }
 
 // Service validates producer payloads, wraps them as CloudEvents, and publishes them.
 type Service struct {
-	Catalog   event.Catalog
+	Registry  registry.Registry
 	Factory   event.Factory
 	Validator Validator
 	Publisher port.Publisher
@@ -48,7 +49,7 @@ type PublishResult struct {
 	EventType string `json:"event_type"`
 	Source    string `json:"source"`
 	Subject   string `json:"subject,omitempty"`
-	Topic     string `json:"topic"`
+	Channel   string `json:"channel"`
 }
 
 // ValidationError marks producer-correctable publish request failures.
@@ -72,11 +73,10 @@ func (s Service) Publish(ctx context.Context, request PublishRequest) (PublishRe
 	if s.Publisher == nil {
 		return PublishResult{}, fmt.Errorf("publisher is required")
 	}
-	catalog := s.Catalog
-	if len(catalog.Types()) == 0 {
-		catalog = event.DefaultCatalog()
+	if !s.Registry.HasEvents() {
+		return PublishResult{}, fmt.Errorf("event registry is required")
 	}
-	spec, err := catalog.MustLookup(request.EventType)
+	registered, err := s.Registry.MustLookup(request.EventType)
 	if err != nil {
 		return PublishResult{}, ValidationError{Message: err.Error()}
 	}
@@ -84,13 +84,13 @@ func (s Service) Publish(ctx context.Context, request PublishRequest) (PublishRe
 		return PublishResult{}, ValidationError{Message: "payload must be a JSON object"}
 	}
 	if s.Validator != nil {
-		if err := s.Validator.Validate(ctx, spec, request.Payload); err != nil {
+		if err := s.Validator.Validate(ctx, registered, request.Payload); err != nil {
 			return PublishResult{}, ValidationError{Message: fmt.Sprintf("validate %s payload: %v", request.EventType, err)}
 		}
 	}
 	factory := s.Factory
 	if factory.Source == "" {
-		factory.Source = "urn:datascape:ingress:http"
+		factory.Source = "urn:eventflow:ingress:http"
 	}
 	evt, err := factory.FromPayload(event.Metadata{
 		Source:        request.Source,
@@ -110,7 +110,7 @@ func (s Service) Publish(ctx context.Context, request PublishRequest) (PublishRe
 		runID = "ingress-" + evt.ID()
 	}
 	inputs := []lineage.Dataset{{Namespace: "http", Name: "/v1/events/" + request.EventType}}
-	outputs := []lineage.Dataset{{Namespace: "redpanda", Name: spec.Topic}}
+	outputs := []lineage.Dataset{{Namespace: "redpanda", Name: registered.Channel}}
 	if err := s.emitLineage(ctx, "START", runID, inputs, outputs, nil); err != nil {
 		return PublishResult{}, err
 	}
@@ -125,8 +125,8 @@ func (s Service) Publish(ctx context.Context, request PublishRequest) (PublishRe
 	if publishErr != nil {
 		return PublishResult{}, fmt.Errorf("publish CloudEvent %s: %w", evt.ID(), publishErr)
 	}
-	s.logger().Info("ingress_published", "event_id", evt.ID(), "event_type", evt.Type(), "topic", spec.Topic)
-	return PublishResult{EventID: evt.ID(), EventType: evt.Type(), Source: evt.Source(), Subject: evt.Subject(), Topic: spec.Topic}, nil
+	s.logger().Info("ingress_published", "event_id", evt.ID(), "event_type", evt.Type(), "channel", registered.Channel)
+	return PublishResult{EventID: evt.ID(), EventType: evt.Type(), Source: evt.Source(), Subject: evt.Subject(), Channel: registered.Channel}, nil
 }
 
 // emitLineage emits one ingress lineage event when lineage is configured.
@@ -136,9 +136,9 @@ func (s Service) emitLineage(ctx context.Context, eventType string, runID string
 	}
 	namespace := s.LineageNS
 	if namespace == "" {
-		namespace = "datascape"
+		namespace = "eventflow"
 	}
-	return s.Lineage.Emit(ctx, lineage.NewEvent(eventType, namespace, "datascape-ingress-http", runID, inputs, outputs, runErr, s.Now))
+	return s.Lineage.Emit(ctx, lineage.NewEvent(eventType, namespace, "eventflow-ingress-http", runID, inputs, outputs, runErr, s.Now))
 }
 
 // logger returns a usable structured logger.
