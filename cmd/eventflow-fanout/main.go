@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	fanoutadapters "github.com/datascape/eventflow/internal/adapters/fanout"
-	"github.com/datascape/eventflow/internal/adapters/fanout/redpanda"
-	lineageadapters "github.com/datascape/eventflow/internal/adapters/lineage"
-	"github.com/datascape/eventflow/internal/app/fanout"
-	"github.com/datascape/eventflow/internal/lineage"
-	port "github.com/datascape/eventflow/internal/ports/fanout"
+	fanoutadapters "github.com/rezarajan/project-datascape/internal/adapters/fanout"
+	"github.com/rezarajan/project-datascape/internal/adapters/fanout/redpanda"
+	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
+	"github.com/rezarajan/project-datascape/internal/app/fanout"
+	"github.com/rezarajan/project-datascape/internal/lineage"
+	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
 )
 
 // main runs the fan-out command and exits with a process status code.

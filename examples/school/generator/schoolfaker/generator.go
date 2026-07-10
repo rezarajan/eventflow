@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/datascape/eventflow/internal/contracts/event"
-	"github.com/datascape/eventflow/internal/ports/generator"
+	"github.com/rezarajan/project-datascape/internal/contracts/event"
+	"github.com/rezarajan/project-datascape/internal/ports/generator"
 )
 
 // Name is the registry name for the school demo generator.

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	consumeadapters "github.com/datascape/eventflow/internal/adapters/consume"
-	redpandasource "github.com/datascape/eventflow/internal/adapters/consume/redpanda"
-	lineageadapters "github.com/datascape/eventflow/internal/adapters/lineage"
-	"github.com/datascape/eventflow/internal/app/consume"
-	"github.com/datascape/eventflow/internal/lineage"
-	port "github.com/datascape/eventflow/internal/ports/consume"
+	consumeadapters "github.com/rezarajan/project-datascape/internal/adapters/consume"
+	redpandasource "github.com/rezarajan/project-datascape/internal/adapters/consume/redpanda"
+	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
+	"github.com/rezarajan/project-datascape/internal/app/consume"
+	"github.com/rezarajan/project-datascape/internal/lineage"
+	port "github.com/rezarajan/project-datascape/internal/ports/consume"
 )
 
 // main runs the consumer command and exits with a process status code.

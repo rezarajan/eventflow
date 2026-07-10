@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/datascape/eventflow/internal/contracts/registry"
+	"github.com/rezarajan/project-datascape/internal/contracts/registry"
 )
 
 func TestValidatorAcceptsValidPayload(t *testing.T) {

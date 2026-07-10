@@ -8,8 +8,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/eventflow/internal/lineage"
-	port "github.com/datascape/eventflow/internal/ports/consume"
+	"github.com/rezarajan/project-datascape/internal/lineage"
+	port "github.com/rezarajan/project-datascape/internal/ports/consume"
 )
 
 // TestServiceConsumesBatchesWithBatchHandlers verifies batch-capable handlers receive consumed batches.

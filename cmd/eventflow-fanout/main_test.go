@@ -7,8 +7,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	port "github.com/datascape/eventflow/internal/ports/fanout"
-	"github.com/datascape/eventflow/internal/testkit/fakes"
+	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
+	"github.com/rezarajan/project-datascape/internal/testkit/fakes"
 )
 
 // TestCreatePublishersParsesCommaSeparatedOutputs verifies CLI output selection uses the registry only.

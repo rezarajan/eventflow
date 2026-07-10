@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/datascape/eventflow/internal/contracts/event"
-	"github.com/datascape/eventflow/internal/ports/generator"
+	"github.com/rezarajan/project-datascape/internal/contracts/event"
+	"github.com/rezarajan/project-datascape/internal/ports/generator"
 )
 
 // TestRegistryRegistersCreatesAndSortsGenerators verifies normal generator registry behavior.

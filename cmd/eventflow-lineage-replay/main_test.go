@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/datascape/eventflow/internal/lineage"
+	"github.com/rezarajan/project-datascape/internal/lineage"
 )
 
 // TestReplayEmitsEventsUntilEOF verifies replay reads and emits all events.

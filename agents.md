@@ -1,6 +1,6 @@
 # Agent Notes
 
-Eventflow is a domain-neutral event runtime. Keep runtime code free of sample event types, sample schemas, and sample projection tables.
+Eventflow is a domain-neutral Go SDK plus thin runtime commands. Keep runtime code free of sample event types, sample schemas, and sample projection tables.
 
 ## Architecture Rules
 
@@ -10,11 +10,17 @@ Eventflow is a domain-neutral event runtime. Keep runtime code free of sample ev
 - AsyncAPI is generated or checked from registry data.
 - OpenLineage is operational metadata and must not be embedded into CloudEvents.
 - Commands should stay small and Unix-like.
+- Public packages must remain importable; avoid putting new SDK behavior only under `internal`.
+- Strict registry-driven validation is the default.
+- Do not add Datascape control-plane, provisioning, identity, governance, or resource ownership workflows.
 
 ## Core Commands
 
 ```bash
 go run ./cmd/eventflow-registry validate --registry examples/school/eventflow.yaml
+go run ./cmd/eventflow-emit
+go run ./cmd/eventflow-receive
+go run ./cmd/eventflow-relay
 go run ./cmd/eventflow-ingress-http
 go run ./cmd/eventflow-fanout
 go run ./cmd/eventflow-consume
@@ -46,4 +52,6 @@ Use:
 
 ```bash
 GOCACHE=/tmp/eventflow-go-build-cache go test ./...
+GOCACHE=/tmp/eventflow-go-build-cache go test -race ./...
+GOCACHE=/tmp/eventflow-go-build-cache go vet ./...
 ```

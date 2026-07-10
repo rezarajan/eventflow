@@ -1,1 +1,31 @@
+# Runtime output
 var/
+tmp/
+temp/
+
+# Go build and test artifacts
+bin/
+build/
+dist/
+coverage.out
+*.test
+*.prof
+*.coverprofile
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

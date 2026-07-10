@@ -11,8 +11,8 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/datascape/eventflow/internal/contracts/event"
-	port "github.com/datascape/eventflow/internal/ports/fanout"
+	"github.com/rezarajan/project-datascape/internal/contracts/event"
+	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
 )
 
 // Service reads CloudEvents JSONL and publishes each event to every configured output.

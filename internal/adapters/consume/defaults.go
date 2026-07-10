@@ -1,10 +1,10 @@
 package consume
 
 import (
-	"github.com/datascape/eventflow/internal/adapters/consume/documents"
-	"github.com/datascape/eventflow/internal/adapters/consume/duckdb"
-	"github.com/datascape/eventflow/internal/adapters/consume/jsonl"
-	port "github.com/datascape/eventflow/internal/ports/consume"
+	"github.com/rezarajan/project-datascape/internal/adapters/consume/documents"
+	"github.com/rezarajan/project-datascape/internal/adapters/consume/duckdb"
+	"github.com/rezarajan/project-datascape/internal/adapters/consume/jsonl"
+	port "github.com/rezarajan/project-datascape/internal/ports/consume"
 )
 
 // Defaults constructs a handler registry for CLI use without imposing a storage backend in core code.

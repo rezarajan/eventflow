@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datascape/eventflow/internal/adapters/generator/registry"
-	lineageadapters "github.com/datascape/eventflow/internal/adapters/lineage"
-	"github.com/datascape/eventflow/internal/app/generate"
-	"github.com/datascape/eventflow/internal/lineage"
-	"github.com/datascape/eventflow/internal/ports/generator"
+	"github.com/rezarajan/project-datascape/internal/adapters/generator/registry"
+	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
+	"github.com/rezarajan/project-datascape/internal/app/generate"
+	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/project-datascape/internal/ports/generator"
 )
 
 // main runs the generator command and exits with a process status code.

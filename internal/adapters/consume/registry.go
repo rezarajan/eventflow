@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	port "github.com/datascape/eventflow/internal/ports/consume"
+	port "github.com/rezarajan/project-datascape/internal/ports/consume"
 )
 
 // Constructor creates an event handler adapter.

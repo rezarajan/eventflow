@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
-	port "github.com/datascape/eventflow/internal/ports/fanout"
+	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
 )
 
 // TestRegistryRegistersCreatesAndSortsPublishers verifies normal registry behavior.

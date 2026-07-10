@@ -91,3 +91,37 @@ quickstart:
     @printf 'Publish an event with: just publish-event\n'
     @printf 'Consume one event with: just consume-event\n'
     @printf 'Replay lineage to Marquez with: just lineage-marquez\n'
+
+# Demo filesystem emit/receive with structured CloudEvents JSON.
+demo-filesystem:
+    mkdir -p var/eventflow/demo
+    printf '{"specversion":"1.0","id":"demo-filesystem-1","source":"urn:eventflow:demo","type":"demo.filesystem.v1","datacontenttype":"application/json","data":{"ok":true}}\n' | GOCACHE=${GOCACHE:-/tmp/eventflow-go-build-cache} go run ./cmd/eventflow-emit --adapter filesystem --path var/eventflow/demo/events.ndjson
+    GOCACHE=${GOCACHE:-/tmp/eventflow-go-build-cache} go run ./cmd/eventflow-receive --adapter filesystem --path var/eventflow/demo/events.ndjson --max-events 1
+
+# Demo HTTP command wiring by printing the command path.
+demo-http:
+    @printf 'Start a receiver with an embedding app using httpflow.NewReceiver, then run:\n'
+    @printf 'go run ./cmd/eventflow-emit --adapter http --url http://localhost:8080/events < event.json\n'
+
+# Demo Redpanda using local compose services and existing runtime commands.
+demo-redpanda:
+    just up
+    just topics
+    @printf 'Run ingress with: just ingress\n'
+    @printf 'Publish with: just publish-event\n'
+
+# Demo S3-compatible storage integration recipe.
+demo-s3:
+    @printf 'Use package github.com/rezarajan/project-datascape/s3 with an injected S3-compatible client; no buckets or credentials are provisioned by Eventflow.\n'
+
+# Demo DuckDB projection using local consume command.
+demo-duckdb:
+    EVENTFLOW_REGISTRY={{registry}} EVENTFLOW_DUCKDB_PATH={{duckdb_path}} GOCACHE=${GOCACHE:-/tmp/eventflow-go-build-cache} go test ./internal/adapters/consume/duckdb
+
+# Run all local demos that do not require external credentials.
+demo-all:
+    just demo-filesystem
+    just demo-http
+    just demo-redpanda
+    just demo-s3
+    just demo-duckdb

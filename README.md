@@ -1,32 +1,59 @@
 # Eventflow
 
-Eventflow is a small Go runtime for standards-based event ingress, fan-out, consumption, local projection, and lineage emission.
+Eventflow is a standalone Go SDK plus thin runtime commands for standards-based event ingress, fan-out, consumption, local projection, and lineage emission.
 
-Domain teams bring their own event registry and JSON Schemas. Eventflow validates producer payloads, wraps them as CloudEvents, publishes them to configured channels, and emits OpenLineage metadata separately.
+Domain teams bring their own event registry and JSON Schemas. Eventflow validates producer payloads, wraps them as CloudEvents, publishes them to configured channels, and emits OpenLineage metadata separately. The public module path is `github.com/rezarajan/project-datascape`.
 
 ## Principles
 
 - Configuration comes from environment variables or command flags.
 - Domain contracts are external registry files, not compiled defaults.
 - Commands are small and composable.
+- Public packages are importable and transport-neutral.
 - Logs go to stderr; data goes to stdout where a command streams data.
 - Backing services such as Redpanda, DuckDB, and Marquez are attached by config.
+
+## SDK Packages
+
+The root package defines the public ports: `Emitter`, `BatchEmitter`,
+`Receiver`, `BatchReceiver`, `Observer`, `EventHandler`, `Validator`, `Codec`,
+and `Runtime`.
+
+Importable adapters and helpers:
+
+| Package | Purpose |
+| --- | --- |
+| `contract` | `eventflow.registry.v2` loader, v1 migration, registry-backed validator. |
+| `cloudevent` | Structured JSON codec and HTTP binary binding helpers. |
+| `lineage` | OpenLineage run events, lifecycle helpers, CloudEvents wrapping. |
+| `filesystem` | NDJSON, stdin/stdout, one-event-per-file, atomic writes, commit markers. |
+| `httpflow` | HTTP emitter and receiver for CloudEvents and native OpenLineage endpoints. |
+| `redpanda` | Importable Redpanda/Kafka emitter and receiver. |
+| `s3` | S3-compatible emitter and notification observer using injected clients. |
+| `duckdb` | Eventflow-owned raw table and registry-driven projections. |
+| `adaptertest` | Reusable conformance tests for adapter authors. |
 
 ## Event Registry
 
 Every runtime path that needs domain knowledge reads `EVENTFLOW_REGISTRY`.
 
 ```yaml
-version: eventflow.registry.v1
+version: eventflow.registry.v2
 events:
-  - type: example.created.v1
-    schema: ./schemas/example-created.v1.schema.json
-    channel: example.events.v1
+  - kind: example.created.v1
+    payload_schema: ./schemas/example-created.v1.schema.json
+    channel:
+      name: example.events.v1
+      protocol: redpanda
+      topic: example.events.v1
     projection:
       table: examples
 ```
 
-`schema` points to a JSON Schema document. `channel` is the canonical broker topic/channel. `projection.table` is optional; DuckDB always writes `_raw_events` and creates typed tables only when this field is present.
+`payload_schema` points to a JSON Schema document. `channel` is the canonical
+broker topic/channel. `projection.table` is optional; DuckDB always writes
+`_raw_events` and creates typed tables only when this field is present. Existing
+`eventflow.registry.v1` files are accepted as migration input.
 
 ## Quickstart
 
@@ -146,6 +173,16 @@ Marquez UI is exposed at `http://localhost:3000` by the provided Compose file.
 
 Each command has a detailed `-help` page. The examples below use `go run`, but
 the same flags apply to installed binaries.
+
+### `eventflow-emit`, `eventflow-receive`, `eventflow-relay`
+
+These thin commands stream structured CloudEvents through the public SDK:
+
+```bash
+go run ./cmd/eventflow-receive --path events.ndjson --max-events 10
+go run ./cmd/eventflow-emit --adapter http --url http://localhost:8080/events < event.json
+go run ./cmd/eventflow-relay --in events.ndjson --out copied.ndjson
+```
 
 ### `eventflow-registry`
 
