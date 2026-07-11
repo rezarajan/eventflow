@@ -5,7 +5,6 @@ go 1.24.0
 require (
 	github.com/cloudevents/sdk-go/v2 v2.16.2
 	github.com/duckdb/duckdb-go/v2 v2.10504.0
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/segmentio/kafka-go v0.4.47
 	gopkg.in/yaml.v3 v3.0.1
 )

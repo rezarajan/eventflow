@@ -19,11 +19,10 @@ type EmitterConfig = producer.Config
 type ReceiverConfig = consumer.Config
 
 type EmitterSpec struct {
-	Brokers      []string `yaml:"brokers" json:"brokers"`
-	Topic        string   `yaml:"topic" json:"topic"`
-	TopicMode    string   `yaml:"topicMode,omitempty" json:"topicMode,omitempty"`
-	RegistryPath string   `yaml:"registryPath,omitempty" json:"registryPath,omitempty"`
-	BatchSize    int      `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
+	Brokers   []string `yaml:"brokers" json:"brokers"`
+	Topic     string   `yaml:"topic" json:"topic"`
+	TopicMode string   `yaml:"topicMode,omitempty" json:"topicMode,omitempty"`
+	BatchSize int      `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
 }
 
 type ReceiverSpec struct {
@@ -55,7 +54,7 @@ func Register(catalog *resource.Catalog) error {
 			return nil
 		},
 		Build: func(_ context.Context, _ resource.BuildContext, spec EmitterSpec) (any, error) {
-			return NewEmitter(EmitterConfig{Brokers: spec.Brokers, Topic: spec.Topic, TopicMode: spec.TopicMode, RegistryPath: spec.RegistryPath, BatchSize: spec.BatchSize}), nil
+			return NewEmitter(EmitterConfig{Brokers: spec.Brokers, Topic: spec.Topic, TopicMode: spec.TopicMode, BatchSize: spec.BatchSize}), nil
 		},
 		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
 	}); err != nil {

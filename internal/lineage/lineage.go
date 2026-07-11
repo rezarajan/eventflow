@@ -119,13 +119,13 @@ type Config struct {
 // FromEnv builds lineage configuration from environment variables.
 func FromEnv() Config {
 	return Config{
-		Output:     envString("EVENTFLOW_LINEAGE_OUTPUT", envString("DATASCAPE_LINEAGE_OUTPUT", "noop")),
-		File:       envString("EVENTFLOW_LINEAGE_FILE", envString("DATASCAPE_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson")),
-		Namespace:  envString("EVENTFLOW_LINEAGE_NAMESPACE", envString("DATASCAPE_LINEAGE_NAMESPACE", "eventflow")),
-		Producer:   envString("EVENTFLOW_LINEAGE_PRODUCER", envString("DATASCAPE_LINEAGE_PRODUCER", DefaultProducer)),
-		SchemaURL:  envString("EVENTFLOW_LINEAGE_SCHEMA_URL", envString("DATASCAPE_LINEAGE_SCHEMA_URL", DefaultSchemaURL)),
-		MarquezURL: envString("EVENTFLOW_MARQUEZ_URL", envString("DATASCAPE_MARQUEZ_URL", "http://localhost:5000")),
-		Timeout:    envDuration("EVENTFLOW_MARQUEZ_TIMEOUT", envDuration("DATASCAPE_MARQUEZ_TIMEOUT", 10*time.Second)),
+		Output:     envString("EVENTFLOW_LINEAGE_OUTPUT", "noop"),
+		File:       envString("EVENTFLOW_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson"),
+		Namespace:  envString("EVENTFLOW_LINEAGE_NAMESPACE", "eventflow"),
+		Producer:   envString("EVENTFLOW_LINEAGE_PRODUCER", DefaultProducer),
+		SchemaURL:  envString("EVENTFLOW_LINEAGE_SCHEMA_URL", DefaultSchemaURL),
+		MarquezURL: envString("EVENTFLOW_MARQUEZ_URL", "http://localhost:5000"),
+		Timeout:    envDuration("EVENTFLOW_MARQUEZ_TIMEOUT", 10*time.Second),
 	}
 }
 

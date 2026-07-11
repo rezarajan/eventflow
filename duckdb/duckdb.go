@@ -12,15 +12,13 @@ import (
 
 // Config defines DuckDB adapter settings.
 type Config struct {
-	Path         string
-	RegistryPath string
-	RawTable     string
+	Path     string
+	RawTable string
 }
 
 type ResourceSpec struct {
-	Path         string `yaml:"path" json:"path"`
-	RegistryPath string `yaml:"registryPath,omitempty" json:"registryPath,omitempty"`
-	RawTable     string `yaml:"rawTable,omitempty" json:"rawTable,omitempty"`
+	Path     string `yaml:"path" json:"path"`
+	RawTable string `yaml:"rawTable,omitempty" json:"rawTable,omitempty"`
 }
 
 func Register(catalog *resource.Catalog) error {
@@ -33,7 +31,7 @@ func Register(catalog *resource.Catalog) error {
 			return nil
 		},
 		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
-			return NewEmitter(Config{Path: spec.Path, RegistryPath: spec.RegistryPath, RawTable: spec.RawTable}), nil
+			return NewEmitter(Config{Path: spec.Path, RawTable: spec.RawTable}), nil
 		},
 		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
 	}); err != nil {
@@ -60,12 +58,12 @@ func NewEmitter(config Config) *Emitter { return &Emitter{config: config} }
 // Name returns the adapter name.
 func (*Emitter) Name() string { return "duckdb" }
 
-// Open opens DuckDB and loads registry-driven projection metadata.
+// Open opens DuckDB and creates Eventflow-owned tables.
 func (e *Emitter) Open(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	e.inner = internalduckdb.New(internalduckdb.Config{Path: e.config.Path, RegistryPath: e.config.RegistryPath})
+	e.inner = internalduckdb.New(internalduckdb.Config{Path: e.config.Path})
 	return e.inner.Open(ctx)
 }
 

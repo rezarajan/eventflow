@@ -27,8 +27,8 @@ func main() {
 func run(ctx context.Context, args []string, stderr *os.File) error {
 	flags := flag.NewFlagSet("eventflow-lineage-replay", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	file := flags.String("file", envString("EVENTFLOW_LINEAGE_FILE", envString("DATASCAPE_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson")), "OpenLineage NDJSON file to replay")
-	limit := flags.Int("limit", envInt("EVENTFLOW_LINEAGE_REPLAY_LIMIT", envInt("DATASCAPE_LINEAGE_REPLAY_LIMIT", 0)), "maximum events to replay; 0 means all")
+	file := flags.String("file", envString("EVENTFLOW_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson"), "OpenLineage NDJSON file to replay")
+	limit := flags.Int("limit", envInt("EVENTFLOW_LINEAGE_REPLAY_LIMIT", 0), "maximum events to replay; 0 means all")
 	flags.Usage = func() {
 		fmt.Fprint(stderr, `eventflow-lineage-replay replays OpenLineage NDJSON to a lineage backend.
 

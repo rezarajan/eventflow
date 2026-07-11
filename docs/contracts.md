@@ -1,27 +1,42 @@
 # Contracts
 
-The public registry package is `github.com/rezarajan/eventflow/contract`.
-New contracts use `eventflow.registry.v2`.
+Eventflow contracts are declarative `EventContract` resources. They describe
+the CloudEvents type and envelope rules a flow should accept.
 
 ```yaml
-version: eventflow.registry.v2
-events:
-  - kind: attendance.submitted.v1
-    payload_schema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
-    channel:
-      name: attendance.events.v1
-      protocol: redpanda
-      topic: attendance.events.v1
-    validation:
-      mode: strict
-    required_extensions:
-      - correlationid
-    projection:
-      table: attendance_submitted
+apiVersion: eventflow.dev/v1alpha1
+kind: EventContract
+metadata:
+  name: attendance-submitted
+spec:
+  type: attendance.submitted.v1
+  sourceRegex: '^urn:school:'
+  dataContentType: application/json
+  payloadSchema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
+  requiredExtensions:
+    - correlationid
+  validationMode: strict
 ```
 
-The loader validates duplicate event types, unsupported validation modes,
-unsupported codecs, invalid regexes, missing required fields, and unresolved
-local schema files during validation. `eventflow.registry.v1` remains accepted
-as a migration input and is normalized to v2.
+Contracts are linked into an `EventFlow` by reference:
 
+```yaml
+apiVersion: eventflow.dev/v1alpha1
+kind: EventFlow
+metadata:
+  name: school-flow
+spec:
+  receiverRef:
+    kind: FilesystemReceiver
+    name: input
+  contractRefs:
+    - kind: EventContract
+      name: attendance-submitted
+  emitterRefs:
+    - kind: FilesystemEmitter
+      name: output
+```
+
+Resource validation rejects missing references, incompatible capabilities,
+duplicate resource identities, unknown kinds, dependency cycles, and unknown
+spec fields.

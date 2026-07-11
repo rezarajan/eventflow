@@ -14,8 +14,7 @@ OpenLineage helpers.
 - Adapter packages for filesystem, HTTP, Redpanda/Kafka, S3-compatible object
   storage, DuckDB, and OpenLineage.
 - A declarative CLI at `cmd/eventflow` with `validate`, `inspect`, and `run`.
-- Compatibility commands for the older registry-based demo/runtime flows.
-- School-domain example contracts and generator tooling under `examples/school`.
+- School-domain example contracts under `examples/school`.
 
 Eventflow does not run a control plane, Kubernetes reconciler, secrets manager,
 or provisioning system. Callers own dependency construction and adapter
@@ -54,7 +53,7 @@ Bundled adapter resource kinds:
 | `RedpandaReceiver` | Receives from Redpanda/Kafka. |
 | `S3Emitter` | SDK resource for S3-compatible writes; requires an injected client before opening. |
 | `S3NotificationObserver` | SDK observer resource; requires an injected notification channel. |
-| `DuckDBEmitter` | Writes events through the DuckDB adapter. |
+| `DuckDBEmitter` | Writes events to Eventflow-owned DuckDB tables. |
 | `DuckDBReceiver` | Placeholder component; receiver mode is not implemented. |
 | `OpenLineageEmitter` | Wraps another Eventflow emitter for OpenLineage CloudEvents. |
 
@@ -250,65 +249,22 @@ go run ./cmd/eventflow inspect --config eventflow.yaml
 go run ./cmd/eventflow run --config eventflow.yaml
 ```
 
-Compatibility and utility commands are still present:
+Additional utility commands:
 
 | Command | Purpose |
 | --- | --- |
 | `cmd/eventflow-emit` | Emit one structured CloudEvent to filesystem or HTTP. |
 | `cmd/eventflow-receive` | Read structured CloudEvents from filesystem/stdin. |
 | `cmd/eventflow-relay` | Copy events from one filesystem source to another. |
-| `cmd/eventflow-ingress-http` | Legacy registry-based HTTP ingress to Redpanda/Kafka. |
-| `cmd/eventflow-fanout` | Legacy stdin fan-out to log/stdout/discard/Redpanda outputs. |
-| `cmd/eventflow-consume` | Legacy Redpanda consumer with jsonl/object/DuckDB handlers. |
-| `cmd/eventflow-registry` | Validate old `eventflow.registry.v2` files and render AsyncAPI. |
 | `cmd/eventflow-lineage-replay` | Replay OpenLineage NDJSON to the configured lineage backend. |
 
 Run any command with `-help` for its flags.
 
-## Legacy Registry Compatibility
-
-The old registry format remains for compatibility commands and the school demo:
-
-```yaml
-version: eventflow.registry.v2
-events:
-  - kind: example.created.v1
-    payload_schema: ./schemas/example-created.v1.schema.json
-    channel:
-      name: example.events.v1
-      protocol: redpanda
-      topic: example.events.v1
-```
-
-Validate a legacy registry:
-
-```bash
-go run ./cmd/eventflow-registry validate --registry examples/school/eventflow.yaml
-```
-
-Render AsyncAPI:
-
-```bash
-go run ./cmd/eventflow-registry asyncapi \
-  --registry examples/school/eventflow.yaml \
-  --output -
-```
-
-New runtime configuration should prefer `eventflow.dev/v1alpha1` resources.
-
 ## Lineage
 
 The public `lineage` package builds OpenLineage run events and can wrap them as
-CloudEvents. Legacy runtime commands can also write or replay OpenLineage NDJSON.
-
-Write lineage to a local file while running a legacy command:
-
-```bash
-EVENTFLOW_LINEAGE_OUTPUT=file \
-EVENTFLOW_LINEAGE_FILE=var/eventflow/lineage/openlineage.ndjson \
-EVENTFLOW_REGISTRY=examples/school/eventflow.yaml \
-go run ./cmd/eventflow-ingress-http
-```
+CloudEvents. `cmd/eventflow-lineage-replay` can replay OpenLineage NDJSON to a
+configured backend.
 
 Replay local lineage to Marquez:
 
@@ -325,9 +281,8 @@ The provided Compose file exposes Marquez UI at `http://localhost:3000`.
 
 ## Examples
 
-`examples/school` contains sample event contracts, payload schemas, SQL DDL,
-and local demo tooling. Generator code is example/test tooling, not a public
-SDK or runtime capability.
+`examples/school` contains sample resource configuration, payload schemas, and
+SQL DDL for a school-domain event set.
 
 ## Development
 

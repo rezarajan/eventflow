@@ -16,10 +16,10 @@ func TestSplitCSVTrimsEmptyValues(t *testing.T) {
 
 // TestFromEnvReadsRedpandaSettings verifies 12FA-style configuration via environment variables.
 func TestFromEnvReadsRedpandaSettings(t *testing.T) {
-	t.Setenv("DATASCAPE_REDPANDA_BROKERS", "a:9092,b:9092")
-	t.Setenv("DATASCAPE_REDPANDA_TOPIC", "custom.events.v1")
-	t.Setenv("DATASCAPE_REDPANDA_TOPIC_MODE", "single")
-	t.Setenv("DATASCAPE_REDPANDA_BATCH_SIZE", "250")
+	t.Setenv("EVENTFLOW_REDPANDA_BROKERS", "a:9092,b:9092")
+	t.Setenv("EVENTFLOW_REDPANDA_TOPIC", "custom.events.v1")
+	t.Setenv("EVENTFLOW_REDPANDA_TOPIC_MODE", "single")
+	t.Setenv("EVENTFLOW_REDPANDA_BATCH_SIZE", "250")
 	got := FromEnv()
 	if !reflect.DeepEqual(got.Brokers, []string{"a:9092", "b:9092"}) || got.Topic != "custom.events.v1" || got.TopicMode != "single" || got.BatchSize != 250 {
 		t.Fatalf("unexpected config: %+v", got)
@@ -28,8 +28,8 @@ func TestFromEnvReadsRedpandaSettings(t *testing.T) {
 
 // TestEnvIntFallsBackForInvalidValues verifies invalid integer configuration uses the safe default.
 func TestEnvIntFallsBackForInvalidValues(t *testing.T) {
-	t.Setenv("DATASCAPE_REDPANDA_BATCH_SIZE", "not-an-int")
-	if got := envInt("DATASCAPE_REDPANDA_BATCH_SIZE", 100); got != 100 {
+	t.Setenv("EVENTFLOW_REDPANDA_BATCH_SIZE", "not-an-int")
+	if got := envInt("EVENTFLOW_REDPANDA_BATCH_SIZE", 100); got != 100 {
 		t.Fatalf("envInt = %d, want 100", got)
 	}
 }

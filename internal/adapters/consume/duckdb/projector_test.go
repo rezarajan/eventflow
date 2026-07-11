@@ -9,18 +9,15 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
-
-	"github.com/rezarajan/eventflow/internal/contracts/registry"
 )
 
-func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {
+func TestProjectorWritesRawRowsIdempotently(t *testing.T) {
 	ctx := context.Background()
 	db, err := sql.Open("duckdb", ":memory:")
 	if err != nil {
 		t.Fatalf("open duckdb: %v", err)
 	}
 	projector := NewWithDB(Config{Path: ":memory:"}, db)
-	projector.registry = duckdbTestRegistry(t)
 	if err := projector.Open(ctx); err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
@@ -29,7 +26,6 @@ func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {
 		t.Fatalf("HandleBatch returned error: %v", err)
 	}
 	assertCount(t, db, "_raw_events", 1)
-	assertCount(t, db, "attendance", 1)
 	if err := projector.Close(ctx); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
@@ -57,34 +53,14 @@ func TestProjectorStoresUnknownEventsOnlyInRawTable(t *testing.T) {
 func TestOutputDatasetsIncludesRawAndProjectedDuckDBTables(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "eventflow.duckdb")
 	projector := New(Config{Path: path})
-	projector.registry = duckdbTestRegistry(t)
 
 	datasets := projector.OutputDatasets()
-	if len(datasets) != 2 {
+	if len(datasets) != 1 {
 		t.Fatalf("unexpected datasets: %+v", datasets)
 	}
 	if datasets[0].Namespace != "duckdb://"+filepath.ToSlash(path) || datasets[0].Name != "_raw_events" {
 		t.Fatalf("unexpected raw dataset: %+v", datasets[0])
 	}
-	if datasets[1].Name != "attendance" {
-		t.Fatalf("unexpected projected dataset: %+v", datasets[1])
-	}
-}
-
-func duckdbTestRegistry(t *testing.T) registry.Registry {
-	t.Helper()
-	registered, err := registry.New([]registry.Event{{
-		Type:    "example.created.v1",
-		Schema:  "attendance-submitted.v1.schema.json",
-		Channel: "example.events.v1",
-		Projection: registry.Projection{
-			Table: "attendance",
-		},
-	}})
-	if err != nil {
-		t.Fatalf("registry.New returned error: %v", err)
-	}
-	return registered
 }
 
 func duckdbTestEvent(t *testing.T, id string, eventType string) cloudevents.Event {

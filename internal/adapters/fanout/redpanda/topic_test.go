@@ -1,8 +1,6 @@
 package redpanda
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,19 +33,6 @@ func TestTopicForTypePrefixMode(t *testing.T) {
 	}
 }
 
-// TestTopicForCatalogMode verifies that catalog mode uses the canonical event channel.
-func TestTopicForCatalogMode(t *testing.T) {
-	evt := cloudevents.NewEvent(cloudevents.VersionV1)
-	evt.SetType("example.created.v1")
-	topic, err := TopicFor(Config{TopicMode: "registry", RegistryPath: topicTestRegistry(t)}, evt)
-	if err != nil {
-		t.Fatalf("TopicFor returned error: %v", err)
-	}
-	if topic != "example.events.v1" {
-		t.Fatalf("topic = %q, want example.events.v1", topic)
-	}
-}
-
 // TestTopicForRejectsMissingSingleTopic verifies static topic mode requires a topic name.
 func TestTopicForRejectsMissingSingleTopic(t *testing.T) {
 	_, err := TopicFor(Config{TopicMode: "single"}, cloudevents.NewEvent(cloudevents.VersionV1))
@@ -69,19 +54,4 @@ func TestIsSingleTopicMode(t *testing.T) {
 	if !IsSingleTopicMode("") || !IsSingleTopicMode(" single ") || IsSingleTopicMode("type-prefix") {
 		t.Fatal("unexpected single-topic mode classification")
 	}
-}
-
-func topicTestRegistry(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "eventflow.yaml")
-	body := []byte(`version: eventflow.registry.v1
-events:
-  - type: example.created.v1
-    schema: example-created.v1.schema.json
-    channel: example.events.v1
-`)
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		t.Fatalf("write registry: %v", err)
-	}
-	return path
 }

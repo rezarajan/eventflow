@@ -12,21 +12,19 @@ const Name = "redpanda"
 
 // Config defines the Redpanda publisher settings.
 type Config struct {
-	Brokers      []string
-	Topic        string
-	TopicMode    string
-	RegistryPath string
-	BatchSize    int
+	Brokers   []string
+	Topic     string
+	TopicMode string
+	BatchSize int
 }
 
 // FromEnv builds a Redpanda publisher configuration from environment variables.
 func FromEnv() Config {
 	return Config{
-		Brokers:      splitCSV(envString("EVENTFLOW_REDPANDA_BROKERS", envString("DATASCAPE_REDPANDA_BROKERS", "localhost:19092"))),
-		Topic:        envString("EVENTFLOW_REDPANDA_TOPIC", envString("DATASCAPE_REDPANDA_TOPIC", "")),
-		TopicMode:    envString("EVENTFLOW_REDPANDA_TOPIC_MODE", envString("DATASCAPE_REDPANDA_TOPIC_MODE", "single")),
-		RegistryPath: envString("EVENTFLOW_REGISTRY", envString("DATASCAPE_REGISTRY", "")),
-		BatchSize:    envInt("EVENTFLOW_REDPANDA_BATCH_SIZE", envInt("DATASCAPE_REDPANDA_BATCH_SIZE", 100)),
+		Brokers:   splitCSV(envString("EVENTFLOW_REDPANDA_BROKERS", "localhost:19092")),
+		Topic:     envString("EVENTFLOW_REDPANDA_TOPIC", ""),
+		TopicMode: envString("EVENTFLOW_REDPANDA_TOPIC_MODE", "single"),
+		BatchSize: envInt("EVENTFLOW_REDPANDA_BATCH_SIZE", 100),
 	}
 }
 

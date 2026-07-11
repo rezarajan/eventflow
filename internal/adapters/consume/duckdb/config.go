@@ -8,15 +8,13 @@ const Name = "duckdb"
 
 // Config defines DuckDB materialization settings.
 type Config struct {
-	Path         string
-	RegistryPath string
+	Path string
 }
 
 // FromEnv builds DuckDB configuration from environment variables.
 func FromEnv() Config {
 	return Config{
-		Path:         envString("EVENTFLOW_DUCKDB_PATH", envString("DATASCAPE_DUCKDB_PATH", "var/eventflow/eventflow.duckdb")),
-		RegistryPath: envString("EVENTFLOW_REGISTRY", envString("DATASCAPE_REGISTRY", "")),
+		Path: envString("EVENTFLOW_DUCKDB_PATH", "var/eventflow/eventflow.duckdb"),
 	}
 }
 

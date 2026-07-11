@@ -7,22 +7,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"github.com/rezarajan/eventflow/internal/contracts/registry"
 	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
-// Projector materializes CloudEvents into raw and typed DuckDB tables.
+// Projector materializes CloudEvents into an Eventflow-owned raw DuckDB table.
 type Projector struct {
-	config   Config
-	registry registry.Registry
-	db       *sql.DB
+	config Config
+	db     *sql.DB
 }
 
 // New constructs a DuckDB projector backed by a local DuckDB file.
@@ -47,12 +44,7 @@ func (p *Projector) Dataset() lineage.Dataset {
 
 // OutputDatasets returns stable DuckDB table datasets written by this projector.
 func (p *Projector) OutputDatasets() []lineage.Dataset {
-	tables := append([]string{"_raw_events"}, p.catalogTables()...)
-	datasets := make([]lineage.Dataset, 0, len(tables))
-	for _, table := range tables {
-		datasets = append(datasets, lineage.DuckDBDataset(p.config.Path, table))
-	}
-	return datasets
+	return []lineage.Dataset{lineage.DuckDBDataset(p.config.Path, "_raw_events")}
 }
 
 // Open initializes the DuckDB database and required tables.
@@ -64,13 +56,6 @@ func (p *Projector) Open(ctx context.Context) error {
 	}
 	if p.config.Path == "" {
 		return fmt.Errorf("duckdb path is required")
-	}
-	if p.config.RegistryPath != "" && !p.registry.HasEvents() {
-		loaded, err := registry.Load(p.config.RegistryPath)
-		if err != nil {
-			return err
-		}
-		p.registry = loaded
 	}
 	if p.db == nil {
 		if p.config.Path != ":memory:" {
@@ -121,11 +106,6 @@ func (p *Projector) HandleBatch(ctx context.Context, events []cloudevents.Event)
 		if err := insertRow(ctx, tx, "_raw_events", row); err != nil {
 			return fmt.Errorf("insert raw DuckDB event %s: %w", evt.ID(), err)
 		}
-		if registered, ok := p.registry.Lookup(evt.Type()); ok && registered.Projection.Table != "" {
-			if err := insertRow(ctx, tx, registered.Projection.Table, row); err != nil {
-				return fmt.Errorf("insert DuckDB table %s event %s: %w", registered.Projection.Table, evt.ID(), err)
-			}
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit DuckDB transaction: %w", err)
@@ -149,34 +129,9 @@ func (p *Projector) Close(ctx context.Context) error {
 	return err
 }
 
-// createTables creates the raw table and one typed table for every catalog table name.
+// createTables creates the raw event table.
 func (p *Projector) createTables(ctx context.Context) error {
-	if err := createTable(ctx, p.db, "_raw_events"); err != nil {
-		return err
-	}
-	for _, table := range p.catalogTables() {
-		if err := createTable(ctx, p.db, table); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// catalogTables returns unique typed table names from the event catalog.
-func (p *Projector) catalogTables() []string {
-	seen := map[string]bool{}
-	for _, eventType := range p.registry.Types() {
-		registered, _ := p.registry.Lookup(eventType)
-		if registered.Projection.Table != "" {
-			seen[registered.Projection.Table] = true
-		}
-	}
-	tables := make([]string, 0, len(seen))
-	for table := range seen {
-		tables = append(tables, table)
-	}
-	sort.Strings(tables)
-	return tables
+	return createTable(ctx, p.db, "_raw_events")
 }
 
 // createTable creates one idempotent CloudEvents projection table.
