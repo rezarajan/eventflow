@@ -8,7 +8,7 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // Projector materializes selected domain events into simple JSONL tables.

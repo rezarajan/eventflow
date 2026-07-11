@@ -112,7 +112,7 @@ demo-redpanda:
 
 # Demo S3-compatible storage integration recipe.
 demo-s3:
-    @printf 'Use package github.com/rezarajan/project-datascape/s3 with an injected S3-compatible client; no buckets or credentials are provisioned by Eventflow.\n'
+    @printf 'Use package github.com/rezarajan/eventflow/s3 with an injected S3-compatible client; no buckets or credentials are provisioned by Eventflow.\n'
 
 # Demo DuckDB projection using local consume command.
 demo-duckdb:

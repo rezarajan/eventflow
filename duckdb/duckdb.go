@@ -5,8 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	eventflow "github.com/rezarajan/project-datascape"
-	internalduckdb "github.com/rezarajan/project-datascape/internal/adapters/consume/duckdb"
+	eventflow "github.com/rezarajan/eventflow"
+	internalduckdb "github.com/rezarajan/eventflow/internal/adapters/consume/duckdb"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 // Config defines DuckDB adapter settings.
@@ -14,6 +15,37 @@ type Config struct {
 	Path         string
 	RegistryPath string
 	RawTable     string
+}
+
+type ResourceSpec struct {
+	Path         string `yaml:"path" json:"path"`
+	RegistryPath string `yaml:"registryPath,omitempty" json:"registryPath,omitempty"`
+	RawTable     string `yaml:"rawTable,omitempty" json:"rawTable,omitempty"`
+}
+
+func Register(catalog *resource.Catalog) error {
+	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK: resource.GVK("DuckDBEmitter"),
+		Default: func(spec *ResourceSpec) error {
+			if spec.Path == "" {
+				spec.Path = "var/eventflow/eventflow.duckdb"
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
+			return NewEmitter(Config{Path: spec.Path, RegistryPath: spec.RegistryPath, RawTable: spec.RawTable}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK: resource.GVK("DuckDBReceiver"),
+		Build: func(context.Context, resource.BuildContext, ResourceSpec) (any, error) {
+			return nil, fmt.Errorf("DuckDBReceiver is not implemented by the current DuckDB adapter")
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent},
+	})
 }
 
 // Emitter writes validated events to Eventflow-owned DuckDB tables.

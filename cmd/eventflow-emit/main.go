@@ -8,10 +8,10 @@ import (
 	"os"
 	"strings"
 
-	eventflow "github.com/rezarajan/project-datascape"
-	"github.com/rezarajan/project-datascape/cloudevent"
-	"github.com/rezarajan/project-datascape/filesystem"
-	"github.com/rezarajan/project-datascape/httpflow"
+	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/cloudevent"
+	"github.com/rezarajan/eventflow/filesystem"
+	"github.com/rezarajan/eventflow/httpflow"
 )
 
 func main() {

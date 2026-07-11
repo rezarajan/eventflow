@@ -6,7 +6,7 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
 )
 
 // IsSingleTopicMode reports whether a topic mode resolves all events to one configured topic.

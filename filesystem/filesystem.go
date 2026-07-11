@@ -13,7 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	eventflow "github.com/rezarajan/project-datascape"
+	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 // Mode controls how events are stored.
@@ -35,6 +36,56 @@ type Config struct {
 	Stdin        io.Reader
 	Stdout       io.Writer
 	Deduplicate  bool
+}
+
+type ResourceSpec struct {
+	Path         string `yaml:"path" json:"path"`
+	Format       string `yaml:"format,omitempty" json:"format,omitempty"`
+	Atomic       bool   `yaml:"atomic,omitempty" json:"atomic,omitempty"`
+	CommitMarker string `yaml:"commitMarker,omitempty" json:"commitMarker,omitempty"`
+	Deduplicate  bool   `yaml:"deduplicate,omitempty" json:"deduplicate,omitempty"`
+}
+
+func Register(catalog *resource.Catalog) error {
+	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK: resource.GVK("FilesystemEmitter"),
+		Default: func(spec *ResourceSpec) error {
+			if spec.Format == "" {
+				spec.Format = string(ModeNDJSON)
+			}
+			return nil
+		},
+		Validate: validateResourceSpec,
+		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
+			return NewEmitter(Config{Path: spec.Path, Mode: Mode(spec.Format), Atomic: spec.Atomic, CommitMarker: spec.CommitMarker, Deduplicate: spec.Deduplicate}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK: resource.GVK("FilesystemReceiver"),
+		Default: func(spec *ResourceSpec) error {
+			if spec.Format == "" {
+				spec.Format = string(ModeNDJSON)
+			}
+			return nil
+		},
+		Validate: validateResourceSpec,
+		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
+			return NewReceiver(Config{Path: spec.Path, Mode: Mode(spec.Format), Deduplicate: spec.Deduplicate}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityReceiver},
+	})
+}
+
+func validateResourceSpec(_ context.Context, spec ResourceSpec) error {
+	switch Mode(spec.Format) {
+	case "", ModeNDJSON, ModeFiles:
+		return nil
+	default:
+		return fmt.Errorf("unsupported format %q", spec.Format)
+	}
 }
 
 // Emitter writes events to a file, directory, stdout, or injected writer.

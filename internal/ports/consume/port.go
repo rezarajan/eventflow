@@ -6,7 +6,7 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // EventSource reads CloudEvents from an external event stream through an explicit lifecycle.

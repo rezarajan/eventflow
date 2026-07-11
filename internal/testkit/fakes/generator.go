@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
-	"github.com/rezarajan/project-datascape/internal/ports/generator"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/ports/generator"
 )
 
 // Generator is an in-memory generator test double.

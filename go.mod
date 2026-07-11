@@ -1,4 +1,4 @@
-module github.com/rezarajan/project-datascape
+module github.com/rezarajan/eventflow
 
 go 1.24.0
 

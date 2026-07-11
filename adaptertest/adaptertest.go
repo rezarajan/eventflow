@@ -9,7 +9,7 @@ import (
 
 	sdk "github.com/cloudevents/sdk-go/v2"
 
-	eventflow "github.com/rezarajan/project-datascape"
+	eventflow "github.com/rezarajan/eventflow"
 )
 
 // RunEmitterContract verifies the minimal emitter lifecycle.

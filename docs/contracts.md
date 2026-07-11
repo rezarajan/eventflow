@@ -1,6 +1,6 @@
 # Contracts
 
-The public registry package is `github.com/rezarajan/project-datascape/contract`.
+The public registry package is `github.com/rezarajan/eventflow/contract`.
 New contracts use `eventflow.registry.v2`.
 
 ```yaml

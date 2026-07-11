@@ -14,8 +14,8 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // Projector materializes CloudEvents into raw and typed DuckDB tables.

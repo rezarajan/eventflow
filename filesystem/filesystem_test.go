@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rezarajan/project-datascape/adaptertest"
+	"github.com/rezarajan/eventflow/adaptertest"
 )
 
 func TestEmitterReceiverFiles(t *testing.T) {

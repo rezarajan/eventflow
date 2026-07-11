@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/rezarajan/project-datascape/filesystem"
+	"github.com/rezarajan/eventflow/filesystem"
 )
 
 func main() {

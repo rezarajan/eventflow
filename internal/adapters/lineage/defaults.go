@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/rezarajan/project-datascape/internal/adapters/lineage/marquez"
-	core "github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/adapters/lineage/marquez"
+	core "github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // NewEmitter constructs a lineage emitter from configuration.

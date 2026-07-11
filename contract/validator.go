@@ -12,7 +12,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	eventflow "github.com/rezarajan/project-datascape"
+	eventflow "github.com/rezarajan/eventflow"
 )
 
 // Validator validates CloudEvents against a registry and JSON Schemas.

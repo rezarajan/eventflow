@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
-	"github.com/rezarajan/project-datascape/internal/lineage"
-	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/lineage"
+	port "github.com/rezarajan/eventflow/internal/ports/fanout"
 )
 
 // Validator validates a producer-submitted domain payload.

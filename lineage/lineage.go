@@ -8,13 +8,14 @@ import (
 
 	sdk "github.com/cloudevents/sdk-go/v2"
 
-	eventflow "github.com/rezarajan/project-datascape"
+	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 const (
 	// CloudEventType is the Eventflow CloudEvents type for OpenLineage run events.
 	CloudEventType   = "io.openlineage.run-event.v1"
-	DefaultProducer  = "github.com/rezarajan/project-datascape"
+	DefaultProducer  = "github.com/rezarajan/eventflow"
 	DefaultSchemaURL = "https://openlineage.io/spec/2-0-2/OpenLineage.json"
 )
 
@@ -60,6 +61,57 @@ type Event struct {
 // Emitter emits lineage events.
 type Emitter interface {
 	EmitLineage(ctx context.Context, event Event) error
+}
+
+type EmitterSpec struct {
+	EmitterRef Reference `yaml:"emitterRef" json:"emitterRef"`
+	Source     string    `yaml:"source,omitempty" json:"source,omitempty"`
+}
+
+type Reference = resource.Reference
+
+type OpenLineageEmitter struct {
+	target eventflow.Emitter
+	source string
+}
+
+func (e *OpenLineageEmitter) Name() string                   { return "openlineage" }
+func (e *OpenLineageEmitter) Open(ctx context.Context) error { return e.target.Open(ctx) }
+func (e *OpenLineageEmitter) Emit(ctx context.Context, event eventflow.Event) error {
+	return e.target.Emit(ctx, event)
+}
+func (e *OpenLineageEmitter) Close(ctx context.Context) error { return e.target.Close(ctx) }
+func (e *OpenLineageEmitter) EmitLineage(ctx context.Context, event Event) error {
+	wrapped, err := WrapCloudEvent(event, e.source)
+	if err != nil {
+		return err
+	}
+	return e.target.Emit(ctx, wrapped)
+}
+
+func Register(catalog *resource.Catalog) error {
+	return resource.Register(catalog, resource.Definition[EmitterSpec]{
+		GVK: resource.GVK("OpenLineageEmitter"),
+		Validate: func(_ context.Context, spec EmitterSpec) error {
+			if spec.EmitterRef.Kind == "" || spec.EmitterRef.Name == "" {
+				return fmt.Errorf("emitterRef kind and name are required")
+			}
+			return nil
+		},
+		References: func(spec EmitterSpec) []resource.Reference {
+			ref := spec.EmitterRef
+			ref.Capability = resource.CapabilityEmitter
+			return []resource.Reference{ref}
+		},
+		Build: func(_ context.Context, bctx resource.BuildContext, spec EmitterSpec) (any, error) {
+			target, err := bctx.Emitter(spec.EmitterRef)
+			if err != nil {
+				return nil, err
+			}
+			return &OpenLineageEmitter{target: target, source: spec.Source}, nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter},
+	})
 }
 
 // NewEvent constructs a lineage run event.

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
-	"github.com/rezarajan/project-datascape/internal/adapters/lineage/ndjson"
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	lineageadapters "github.com/rezarajan/eventflow/internal/adapters/lineage"
+	"github.com/rezarajan/eventflow/internal/adapters/lineage/ndjson"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // main runs the lineage replay command and exits with a process status code.

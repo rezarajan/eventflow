@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
 	"gopkg.in/yaml.v3"
 )
 

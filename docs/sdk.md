@@ -3,7 +3,7 @@
 Import the root SDK for ports and runtime composition:
 
 ```go
-import eventflow "github.com/rezarajan/project-datascape"
+import eventflow "github.com/rezarajan/eventflow"
 ```
 
 Primary interfaces are `Emitter`, `BatchEmitter`, `Receiver`, `BatchReceiver`,

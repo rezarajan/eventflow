@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rezarajan/project-datascape/contracts/eventflow-registry.v2.schema.json",
+  "$id": "https://github.com/rezarajan/eventflow/contracts/eventflow-registry.v2.schema.json",
   "title": "Eventflow Registry v2",
   "type": "object",
   "required": ["version", "events"],

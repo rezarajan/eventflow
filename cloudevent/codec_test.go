@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rezarajan/project-datascape/adaptertest"
+	"github.com/rezarajan/eventflow/adaptertest"
 )
 
 func TestStructuredJSONCodecContract(t *testing.T) {

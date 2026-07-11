@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rezarajan/project-datascape/internal/app/ingest"
+	"github.com/rezarajan/eventflow/internal/app/ingest"
 )
 
 const eventPrefix = "/v1/events/"

@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	eventflow "github.com/rezarajan/project-datascape"
+	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 // PutObjectInput is the minimal request shape needed from an S3-compatible client.
@@ -54,6 +55,57 @@ type Config struct {
 	OneEventPerObject  bool
 	MultipartThreshold int64
 	Client             Client
+}
+
+type ResourceSpec struct {
+	Endpoint           string            `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	Region             string            `yaml:"region,omitempty" json:"region,omitempty"`
+	Bucket             string            `yaml:"bucket" json:"bucket"`
+	Prefix             string            `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	PathStyle          bool              `yaml:"pathStyle,omitempty" json:"pathStyle,omitempty"`
+	Metadata           map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Tags               map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	OneEventPerObject  bool              `yaml:"oneEventPerObject,omitempty" json:"oneEventPerObject,omitempty"`
+	MultipartThreshold int64             `yaml:"multipartThreshold,omitempty" json:"multipartThreshold,omitempty"`
+	FetchObjects       bool              `yaml:"fetchObjects,omitempty" json:"fetchObjects,omitempty"`
+}
+
+func Register(catalog *resource.Catalog) error {
+	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK:      resource.GVK("S3Emitter"),
+		Validate: validateResource,
+		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
+			return NewEmitter(configFromSpec(spec)), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[ResourceSpec]{
+		GVK:      resource.GVK("S3NotificationObserver"),
+		Validate: validateResource,
+		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
+			observer := NewObserver(configFromSpec(spec), nil)
+			observer.FetchObjects = spec.FetchObjects
+			return observer, nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityObserver},
+	})
+}
+
+func validateResource(_ context.Context, spec ResourceSpec) error {
+	if spec.Bucket == "" {
+		return fmt.Errorf("bucket is required")
+	}
+	return nil
+}
+
+func configFromSpec(spec ResourceSpec) Config {
+	return Config{
+		Endpoint: spec.Endpoint, Region: spec.Region, Bucket: spec.Bucket, Prefix: spec.Prefix,
+		PathStyle: spec.PathStyle, Metadata: spec.Metadata, Tags: spec.Tags,
+		OneEventPerObject: spec.OneEventPerObject, MultipartThreshold: spec.MultipartThreshold,
+	}
 }
 
 // Emitter writes events to S3-compatible object storage.

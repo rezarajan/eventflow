@@ -11,7 +11,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/segmentio/kafka-go"
 
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // Source consumes CloudEvents from Redpanda.

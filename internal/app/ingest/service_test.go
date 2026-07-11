@@ -8,9 +8,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 func TestServicePublishesValidatedCloudEvent(t *testing.T) {

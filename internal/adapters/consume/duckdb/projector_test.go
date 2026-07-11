@@ -10,7 +10,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
 )
 
 func TestProjectorWritesRawAndTypedRowsIdempotently(t *testing.T) {

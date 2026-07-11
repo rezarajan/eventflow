@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rezarajan/project-datascape/internal/app/ingest"
+	"github.com/rezarajan/eventflow/internal/app/ingest"
 )
 
 func TestHandlerPublishesTypedRoute(t *testing.T) {

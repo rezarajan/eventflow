@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	core "github.com/rezarajan/project-datascape/internal/lineage"
+	core "github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // TestNewEmitterRejectsUnknownOutput verifies unsupported lineage outputs fail fast.

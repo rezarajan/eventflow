@@ -11,9 +11,9 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
-	"github.com/rezarajan/project-datascape/internal/lineage"
-	port "github.com/rezarajan/project-datascape/internal/ports/consume"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/lineage"
+	port "github.com/rezarajan/eventflow/internal/ports/consume"
 )
 
 // Service reads CloudEvents from a source and applies them to configured handlers.

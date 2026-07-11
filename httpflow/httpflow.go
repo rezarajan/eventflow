@@ -12,8 +12,9 @@ import (
 
 	sdk "github.com/cloudevents/sdk-go/v2"
 
-	eventflow "github.com/rezarajan/project-datascape"
-	"github.com/rezarajan/project-datascape/cloudevent"
+	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/cloudevent"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 // Mode controls HTTP event representation.
@@ -33,6 +34,72 @@ type EmitterConfig struct {
 	RetryMax          int
 	RetryBackoff      time.Duration
 	IdempotencyHeader string
+}
+
+type HTTPEmitterSpec struct {
+	URL               string `yaml:"url" json:"url"`
+	Mode              string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	RetryMax          int    `yaml:"retryMax,omitempty" json:"retryMax,omitempty"`
+	RetryBackoff      string `yaml:"retryBackoff,omitempty" json:"retryBackoff,omitempty"`
+	IdempotencyHeader string `yaml:"idempotencyHeader,omitempty" json:"idempotencyHeader,omitempty"`
+}
+
+type HTTPReceiverSpec struct {
+	MaxBody int64 `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
+}
+
+func Register(catalog *resource.Catalog) error {
+	if err := resource.Register(catalog, resource.Definition[HTTPEmitterSpec]{
+		GVK: resource.GVK("HTTPEmitter"),
+		Default: func(spec *HTTPEmitterSpec) error {
+			if spec.Mode == "" {
+				spec.Mode = string(ModeStructuredCloudEvents)
+			}
+			return nil
+		},
+		Validate: func(_ context.Context, spec HTTPEmitterSpec) error {
+			if spec.URL == "" {
+				return fmt.Errorf("url is required")
+			}
+			if _, err := parseBackoff(spec.RetryBackoff); err != nil {
+				return err
+			}
+			switch Mode(spec.Mode) {
+			case ModeStructuredCloudEvents, ModeBinaryCloudEvents, ModeNativeOpenLineage:
+				return nil
+			default:
+				return fmt.Errorf("unsupported mode %q", spec.Mode)
+			}
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPEmitterSpec) (any, error) {
+			backoff, err := parseBackoff(spec.RetryBackoff)
+			if err != nil {
+				return nil, err
+			}
+			return NewEmitter(EmitterConfig{URL: spec.URL, Mode: Mode(spec.Mode), RetryMax: spec.RetryMax, RetryBackoff: backoff, IdempotencyHeader: spec.IdempotencyHeader}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[HTTPReceiverSpec]{
+		GVK: resource.GVK("HTTPReceiver"),
+		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPReceiverSpec) (any, error) {
+			return NewReceiver(ReceiverConfig{MaxBody: spec.MaxBody}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent},
+	})
+}
+
+func parseBackoff(value string) (time.Duration, error) {
+	if value == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("retryBackoff: %w", err)
+	}
+	return duration, nil
 }
 
 // Emitter posts events to HTTP endpoints.

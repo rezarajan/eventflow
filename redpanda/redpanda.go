@@ -3,11 +3,13 @@ package redpanda
 
 import (
 	"context"
+	"fmt"
 	"io"
 
-	eventflow "github.com/rezarajan/project-datascape"
-	consumer "github.com/rezarajan/project-datascape/internal/adapters/consume/redpanda"
-	producer "github.com/rezarajan/project-datascape/internal/adapters/fanout/redpanda"
+	eventflow "github.com/rezarajan/eventflow"
+	consumer "github.com/rezarajan/eventflow/internal/adapters/consume/redpanda"
+	producer "github.com/rezarajan/eventflow/internal/adapters/fanout/redpanda"
+	"github.com/rezarajan/eventflow/resource"
 )
 
 // EmitterConfig configures a Redpanda emitter.
@@ -15,6 +17,76 @@ type EmitterConfig = producer.Config
 
 // ReceiverConfig configures a Redpanda receiver.
 type ReceiverConfig = consumer.Config
+
+type EmitterSpec struct {
+	Brokers      []string `yaml:"brokers" json:"brokers"`
+	Topic        string   `yaml:"topic" json:"topic"`
+	TopicMode    string   `yaml:"topicMode,omitempty" json:"topicMode,omitempty"`
+	RegistryPath string   `yaml:"registryPath,omitempty" json:"registryPath,omitempty"`
+	BatchSize    int      `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
+}
+
+type ReceiverSpec struct {
+	Brokers     []string `yaml:"brokers" json:"brokers"`
+	Topic       string   `yaml:"topic" json:"topic"`
+	GroupID     string   `yaml:"groupId,omitempty" json:"groupId,omitempty"`
+	StartOffset string   `yaml:"startOffset,omitempty" json:"startOffset,omitempty"`
+}
+
+func Register(catalog *resource.Catalog) error {
+	if err := resource.Register(catalog, resource.Definition[EmitterSpec]{
+		GVK: resource.GVK("RedpandaEmitter"),
+		Default: func(spec *EmitterSpec) error {
+			if spec.TopicMode == "" {
+				spec.TopicMode = "single"
+			}
+			if spec.BatchSize <= 0 {
+				spec.BatchSize = 100
+			}
+			return nil
+		},
+		Validate: func(_ context.Context, spec EmitterSpec) error {
+			if len(spec.Brokers) == 0 {
+				return fmt.Errorf("brokers is required")
+			}
+			if spec.Topic == "" {
+				return fmt.Errorf("topic is required")
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec EmitterSpec) (any, error) {
+			return NewEmitter(EmitterConfig{Brokers: spec.Brokers, Topic: spec.Topic, TopicMode: spec.TopicMode, RegistryPath: spec.RegistryPath, BatchSize: spec.BatchSize}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[ReceiverSpec]{
+		GVK: resource.GVK("RedpandaReceiver"),
+		Default: func(spec *ReceiverSpec) error {
+			if spec.GroupID == "" {
+				spec.GroupID = "eventflow"
+			}
+			if spec.StartOffset == "" {
+				spec.StartOffset = "first"
+			}
+			return nil
+		},
+		Validate: func(_ context.Context, spec ReceiverSpec) error {
+			if len(spec.Brokers) == 0 {
+				return fmt.Errorf("brokers is required")
+			}
+			if spec.Topic == "" {
+				return fmt.Errorf("topic is required")
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec ReceiverSpec) (any, error) {
+			return NewReceiver(ReceiverConfig{Brokers: spec.Brokers, Topic: spec.Topic, GroupID: spec.GroupID, StartOffset: spec.StartOffset}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityReceiver},
+	})
+}
 
 // Emitter publishes CloudEvents to Redpanda.
 type Emitter struct{ inner *producer.Publisher }

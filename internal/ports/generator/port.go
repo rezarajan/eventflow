@@ -4,7 +4,7 @@ package generator
 import (
 	"context"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
 )
 
 // Config contains generic generator settings and adapter-specific parameters.

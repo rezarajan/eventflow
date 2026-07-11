@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/rezarajan/project-datascape/internal/ports/generator"
+	"github.com/rezarajan/eventflow/internal/ports/generator"
 )
 
 // Constructor creates a generator adapter.

@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rezarajan/project-datascape/internal/adapters/fanout/redpanda"
-	"github.com/rezarajan/project-datascape/internal/adapters/ingest/httpapi"
-	schemavalidator "github.com/rezarajan/project-datascape/internal/adapters/ingest/jsonschema"
-	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
-	"github.com/rezarajan/project-datascape/internal/app/ingest"
-	"github.com/rezarajan/project-datascape/internal/contracts/event"
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
-	"github.com/rezarajan/project-datascape/internal/lineage"
+	"github.com/rezarajan/eventflow/internal/adapters/fanout/redpanda"
+	"github.com/rezarajan/eventflow/internal/adapters/ingest/httpapi"
+	schemavalidator "github.com/rezarajan/eventflow/internal/adapters/ingest/jsonschema"
+	lineageadapters "github.com/rezarajan/eventflow/internal/adapters/lineage"
+	"github.com/rezarajan/eventflow/internal/app/ingest"
+	"github.com/rezarajan/eventflow/internal/contracts/event"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // main runs the HTTP ingress command and exits with a process status code.

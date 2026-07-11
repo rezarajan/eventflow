@@ -10,7 +10,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/rezarajan/project-datascape/internal/contracts/registry"
+	"github.com/rezarajan/eventflow/internal/contracts/registry"
 )
 
 // Validator validates event payloads with Draft 2020-12 JSON Schemas.

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	fanoutadapters "github.com/rezarajan/project-datascape/internal/adapters/fanout"
-	"github.com/rezarajan/project-datascape/internal/adapters/fanout/redpanda"
-	lineageadapters "github.com/rezarajan/project-datascape/internal/adapters/lineage"
-	"github.com/rezarajan/project-datascape/internal/app/fanout"
-	"github.com/rezarajan/project-datascape/internal/lineage"
-	port "github.com/rezarajan/project-datascape/internal/ports/fanout"
+	fanoutadapters "github.com/rezarajan/eventflow/internal/adapters/fanout"
+	"github.com/rezarajan/eventflow/internal/adapters/fanout/redpanda"
+	lineageadapters "github.com/rezarajan/eventflow/internal/adapters/lineage"
+	"github.com/rezarajan/eventflow/internal/app/fanout"
+	"github.com/rezarajan/eventflow/internal/lineage"
+	port "github.com/rezarajan/eventflow/internal/ports/fanout"
 )
 
 // main runs the fan-out command and exits with a process status code.
@@ -85,7 +85,7 @@ Flags:
 	if err != nil {
 		return err
 	}
-	inputs := []lineage.Dataset{{Namespace: "eventflow-generate", Name: "stdout/events"}}
+	inputs := []lineage.Dataset{{Namespace: "eventflow", Name: "stdin/events"}}
 	outputDatasets := outputDatasets(*outputs)
 	if err := emitter.Emit(ctx, lineage.NewEvent("START", lineageConfig.Namespace, "eventflow-fanout", *runID, inputs, outputDatasets, nil, time.Now)); err != nil {
 		return err

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/rezarajan/project-datascape/internal/ports/fanout"
+	"github.com/rezarajan/eventflow/internal/ports/fanout"
 )
 
 // Constructor creates a publisher adapter.

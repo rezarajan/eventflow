@@ -297,7 +297,7 @@ func (r *NDJSONReader) Close() error {
 }
 
 // DefaultProducer identifies this project as the producer of lineage metadata.
-const DefaultProducer = "github.com/rezarajan/project-datascape"
+const DefaultProducer = "github.com/rezarajan/eventflow"
 
 // DefaultSchemaURL identifies the OpenLineage schema version used for emitted events.
 const DefaultSchemaURL = "https://openlineage.io/spec/1-0-5/OpenLineage.json"
