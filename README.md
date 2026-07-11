@@ -1,28 +1,40 @@
 # Eventflow
 
-Eventflow is a standalone Go SDK and a small set of runtime commands for
-CloudEvents-based event pipelines. It provides transport-neutral ports,
-declarative resource loading, validation, compilation, local adapters, and
-OpenLineage helpers.
+Eventflow is a Go SDK and declarative runtime for CloudEvents pipelines. It
+loads `eventflow.dev/v1alpha1` YAML resources, validates their graph, compiles
+them into small Go interfaces, and runs receiver-to-emitter flows.
 
-## What Is In This Repo
+Module path:
 
-- Public SDK ports in the root package: `Emitter`, `BatchEmitter`, `Receiver`,
-  `BatchReceiver`, `Observer`, `Validator`, `Codec`, and `Runtime`.
-- Declarative resource compiler in `resource` for
-  `eventflow.dev/v1alpha1` YAML documents.
-- Adapter packages for filesystem, HTTP, Redpanda/Kafka, S3-compatible object
-  storage, DuckDB, and OpenLineage.
-- A declarative CLI at `cmd/eventflow` with `validate`, `inspect`, and `run`.
-- School-domain example contracts under `examples/school`.
+```go
+github.com/rezarajan/eventflow
+```
 
-Eventflow does not run a control plane, Kubernetes reconciler, secrets manager,
-or provisioning system. Callers own dependency construction and adapter
-registration.
+Eventflow does not provide a control plane, API server, reconciler, provisioning
+system, secrets manager, or global adapter registry. Applications and commands
+explicitly register the resource kinds they support.
+
+## Repository Contents
+
+| Path | Purpose |
+| --- | --- |
+| `eventflow.go` | Public SDK ports: `Emitter`, `Receiver`, `Observer`, `Validator`, `Codec`, and `Runtime`. |
+| `resource/` | Declarative resource loader, validator, graph builder, and compiler. |
+| `filesystem/` | Filesystem emitter and receiver resources. |
+| `httpflow/` | HTTP emitter and handler component. |
+| `redpanda/` | Redpanda/Kafka emitter and receiver resources. |
+| `s3/` | S3-compatible emitter and notification observer types. |
+| `duckdb/` | DuckDB emitter for Eventflow-owned raw event storage. |
+| `lineage/` | Public OpenLineage helpers and resource wrapper. |
+| `adapters/bundled/` | Convenience registration for bundled resource kinds. |
+| `cmd/eventflow/` | Declarative CLI: `validate`, `inspect`, and `run`. |
+| `cmd/eventflow-*` | Small utility commands for emit, receive, relay, and lineage replay. |
+| `examples/school/` | Example resource config, payload schemas, and SQL DDL. |
+| `CONCEPTS.md` | Core concepts and practical authoring guide. |
 
 ## Resource Model
 
-Declarative resources use this envelope:
+Every resource uses the same envelope:
 
 ```yaml
 apiVersion: eventflow.dev/v1alpha1
@@ -34,36 +46,34 @@ spec:
   format: ndjson
 ```
 
-Core resource kinds:
+Core kinds:
 
 | Kind | Purpose |
 | --- | --- |
-| `EventContract` | Declares CloudEvents type rules, optional payload schema reference, required extensions, and validation mode. |
-| `EventFlow` | Wires one receiver or observer, contracts, emitters, and optional invalid-event routing. |
+| `EventContract` | Declares accepted CloudEvents type/envelope rules and optional payload schema references. |
+| `EventFlow` | Links one receiver or observer, contracts, emitters, and optional invalid-event routing. |
 
-Bundled adapter resource kinds:
+Bundled adapter kinds:
 
-| Kind | Capability |
+| Kind | Notes |
 | --- | --- |
-| `FilesystemEmitter` | Emits events to NDJSON, stdout, or one JSON file per event. |
-| `FilesystemReceiver` | Receives events from NDJSON, stdin, or one JSON file per event. |
+| `FilesystemEmitter` | Emits to stdout, NDJSON, or one JSON file per event. |
+| `FilesystemReceiver` | Receives from stdin, NDJSON, or one JSON file per event. |
 | `HTTPEmitter` | Emits CloudEvents to an HTTP endpoint. |
-| `HTTPReceiver` | Registered as an HTTP handler component; use the HTTP ingress command for server mode. |
-| `RedpandaEmitter` | Emits to Redpanda/Kafka. |
-| `RedpandaReceiver` | Receives from Redpanda/Kafka. |
-| `S3Emitter` | SDK resource for S3-compatible writes; requires an injected client before opening. |
-| `S3NotificationObserver` | SDK observer resource; requires an injected notification channel. |
-| `DuckDBEmitter` | Writes events to Eventflow-owned DuckDB tables. |
-| `DuckDBReceiver` | Placeholder component; receiver mode is not implemented. |
-| `OpenLineageEmitter` | Wraps another Eventflow emitter for OpenLineage CloudEvents. |
+| `HTTPReceiver` | Builds an HTTP handler component for embedding in an app. |
+| `RedpandaEmitter` | Emits to an existing Redpanda/Kafka topic. |
+| `RedpandaReceiver` | Receives from an existing Redpanda/Kafka topic. |
+| `S3Emitter` | Emits to S3-compatible storage with an injected client. |
+| `S3NotificationObserver` | Observes object notifications with an injected notification channel. |
+| `DuckDBEmitter` | Writes events into Eventflow-owned DuckDB raw tables. |
+| `DuckDBReceiver` | Registered placeholder; receiver behavior is not implemented. |
+| `OpenLineageEmitter` | Wraps another emitter for OpenLineage CloudEvents. |
 
 The compiler rejects unknown envelope fields, unknown spec fields, duplicate
-resource identities, missing references, dependency cycles, and incompatible
-capabilities.
+resource identities, missing references, dependency cycles, and capability
+mismatches.
 
-## Quickstart: Local Filesystem Flow
-
-This quickstart needs no external services.
+## Quickstart: Filesystem Flow
 
 Create a resource file:
 
@@ -117,94 +127,43 @@ cat > /tmp/eventflow-input.ndjson <<'JSON'
 JSON
 ```
 
-Validate and inspect the config:
+Validate, inspect, and run:
 
 ```bash
 go run ./cmd/eventflow validate --config /tmp/eventflow-files.yaml
 go run ./cmd/eventflow inspect --config /tmp/eventflow-files.yaml
-```
-
-Run the flow:
-
-```bash
 go run ./cmd/eventflow run --config /tmp/eventflow-files.yaml
 cat /tmp/eventflow-output.ndjson
 ```
 
-## Quickstart: Redpanda Flow
+## School Example
 
-Start local services:
+The school example is now a declarative resource file:
+
+```bash
+go run ./cmd/eventflow validate --config examples/school/eventflow.yaml
+go run ./cmd/eventflow inspect --config examples/school/eventflow.yaml
+```
+
+It includes filesystem resources, `EventContract` definitions, payload schema
+references, and one `EventFlow`.
+
+## Redpanda Example
+
+Start local Redpanda:
 
 ```bash
 just up
+just topic school.events.v1
 ```
 
-Create a topic:
-
-```bash
-docker compose exec redpanda \
-  rpk topic create example.events.v1 -X brokers=localhost:9092 --partitions 3 --replicas 1
-```
-
-Use Redpanda resources:
-
-```yaml
-apiVersion: eventflow.dev/v1alpha1
-kind: RedpandaReceiver
-metadata:
-  name: input-topic
-spec:
-  brokers: [localhost:19092]
-  topic: example.events.v1
-  groupId: eventflow-quickstart
----
-apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemEmitter
-metadata:
-  name: local-output
-spec:
-  path: /tmp/redpanda-events.ndjson
-  format: ndjson
----
-apiVersion: eventflow.dev/v1alpha1
-kind: EventContract
-metadata:
-  name: example-created
-spec:
-  type: example.created.v1
----
-apiVersion: eventflow.dev/v1alpha1
-kind: EventFlow
-metadata:
-  name: redpanda-to-file
-spec:
-  receiverRef:
-    kind: RedpandaReceiver
-    name: input-topic
-  contractRefs:
-    - kind: EventContract
-      name: example-created
-  emitterRefs:
-    - kind: FilesystemEmitter
-      name: local-output
-```
-
-Validate and run it:
-
-```bash
-go run ./cmd/eventflow validate --config redpanda-flow.yaml
-go run ./cmd/eventflow run --config redpanda-flow.yaml
-```
-
-Stop local services when done:
-
-```bash
-just down
-```
+Use `RedpandaReceiver` and `RedpandaEmitter` resources with explicit broker and
+topic settings. Eventflow connects to existing topics; it does not create or
+manage broker infrastructure at runtime.
 
 ## SDK Usage
 
-Use the root package when you want direct Go composition instead of YAML:
+Direct composition:
 
 ```go
 type emitHandler struct {
@@ -224,7 +183,7 @@ runtime := eventflow.Runtime{
 }
 ```
 
-For declarative composition, create a catalog and explicitly register adapters:
+Declarative composition:
 
 ```go
 catalog := resource.NewCatalog()
@@ -237,11 +196,11 @@ _ = compiled
 _ = err
 ```
 
-There is no global registry and no `init()` adapter registration.
+There is no global catalog and no hidden adapter registration.
 
 ## Commands
 
-The preferred declarative command is:
+Primary declarative command:
 
 ```bash
 go run ./cmd/eventflow validate --config eventflow.yaml
@@ -249,24 +208,21 @@ go run ./cmd/eventflow inspect --config eventflow.yaml
 go run ./cmd/eventflow run --config eventflow.yaml
 ```
 
-Additional utility commands:
+Utility commands:
 
 | Command | Purpose |
 | --- | --- |
-| `cmd/eventflow-emit` | Emit one structured CloudEvent to filesystem or HTTP. |
-| `cmd/eventflow-receive` | Read structured CloudEvents from filesystem/stdin. |
-| `cmd/eventflow-relay` | Copy events from one filesystem source to another. |
-| `cmd/eventflow-lineage-replay` | Replay OpenLineage NDJSON to the configured lineage backend. |
+| `cmd/eventflow-emit` | Read one structured CloudEvent from stdin and emit it to filesystem or HTTP. |
+| `cmd/eventflow-receive` | Read structured CloudEvents from filesystem/stdin and write them to stdout. |
+| `cmd/eventflow-relay` | Relay events between filesystem paths. |
+| `cmd/eventflow-lineage-replay` | Replay OpenLineage NDJSON to `noop`, file, or Marquez lineage output. |
 
-Run any command with `-help` for its flags.
+Run any command with `-help` for flags.
 
 ## Lineage
 
-The public `lineage` package builds OpenLineage run events and can wrap them as
-CloudEvents. `cmd/eventflow-lineage-replay` can replay OpenLineage NDJSON to a
-configured backend.
-
-Replay local lineage to Marquez:
+The public `lineage` package builds OpenLineage run events and wraps them as
+CloudEvents. The replay command can send OpenLineage NDJSON to Marquez:
 
 ```bash
 just up-marquez
@@ -277,30 +233,22 @@ go run ./cmd/eventflow-lineage-replay \
   --file var/eventflow/lineage/openlineage.ndjson
 ```
 
-The provided Compose file exposes Marquez UI at `http://localhost:3000`.
+The Compose file exposes Marquez UI at `http://localhost:3000`.
 
-## Examples
+## Learn More
 
-`examples/school` contains sample resource configuration, payload schemas, and
-SQL DDL for a school-domain event set.
+Read [CONCEPTS.md](CONCEPTS.md) for the component model, reference semantics,
+contract authoring, EventFlow authoring, and adapter resource guidance.
 
 ## Development
 
-Run tests:
-
 ```bash
 go test ./...
-```
-
-Run the broader verification used for this repo:
-
-```bash
 go test -race ./...
 go vet ./...
-staticcheck ./...
 ```
 
-If the default Go cache is not writable in a sandbox, set a writable cache:
+If the default Go cache is not writable:
 
 ```bash
 GOCACHE=/tmp/eventflow-go-build-cache go test ./...
