@@ -23,24 +23,24 @@ type Event = cloudevents.Event
 // Kind names a registered event kind/type.
 type Kind string
 
-// ValidationMode controls how registry and payload validation are applied.
+// ValidationMode controls how contract and payload validation are applied.
 type ValidationMode string
 
 const (
 	// ValidationStrict rejects unknown event types and all schema/envelope failures.
 	ValidationStrict ValidationMode = "strict"
-	// ValidationCompatible keeps strict envelope validation while allowing compatible registry evolution.
+	// ValidationCompatible keeps strict envelope validation while allowing compatible contract evolution.
 	ValidationCompatible ValidationMode = "compatible"
 	// ValidationPermissive reports producer-correctable issues where possible but lets runtime dispatch continue.
 	ValidationPermissive ValidationMode = "permissive"
-	// ValidationDisabled bypasses registry and payload validation.
+	// ValidationDisabled bypasses contract and payload validation.
 	ValidationDisabled ValidationMode = "disabled"
 )
 
 var (
-	// ErrValidation marks validation failures that producers or registry authors can fix.
+	// ErrValidation marks validation failures that producers or contract authors can fix.
 	ErrValidation = errors.New("eventflow validation failed")
-	// ErrNotFound marks unresolved registry entries or missing transport resources.
+	// ErrNotFound marks unresolved contracts, references, or missing transport resources.
 	ErrNotFound = errors.New("eventflow resource not found")
 	// ErrUnsupported marks unsupported codecs, adapters, or validation modes.
 	ErrUnsupported = errors.New("eventflow unsupported capability")
@@ -143,6 +143,11 @@ type ObservationHandler interface {
 	HandleObservation(ctx context.Context, observation Observation) error
 }
 
+// ObservationMapper converts platform activity into a normalized Eventflow event.
+type ObservationMapper interface {
+	MapObservation(ctx context.Context, observation Observation) (Event, error)
+}
+
 // Validator validates an event in a chosen validation mode.
 type Validator interface {
 	Validate(ctx context.Context, event Event, mode ValidationMode) error
@@ -197,6 +202,64 @@ func (r Runtime) Run(ctx context.Context) error {
 			}
 		}
 		if err := r.Handler.Handle(ctx, evt); err != nil {
+			return err
+		}
+	}
+}
+
+// ObservationRuntime composes an observer, mapper, validator, and handler.
+type ObservationRuntime struct {
+	Observer       Observer
+	Mapper         ObservationMapper
+	Validator      Validator
+	Handler        EventHandler
+	InvalidHandler EventHandler
+	Mode           ValidationMode
+}
+
+// Run observes platform activity until EOF, cancellation, or handler failure.
+func (r ObservationRuntime) Run(ctx context.Context) error {
+	if r.Observer == nil {
+		return fmt.Errorf("observer is required")
+	}
+	if r.Mapper == nil {
+		return fmt.Errorf("observation mapper is required")
+	}
+	if r.Handler == nil {
+		return fmt.Errorf("handler is required")
+	}
+	mode := r.Mode
+	if mode == "" {
+		mode = ValidationStrict
+	}
+	if err := r.Observer.Open(ctx); err != nil {
+		return err
+	}
+	defer r.Observer.Close(ctx)
+	for {
+		observation, err := r.Observer.Observe(ctx)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		event, err := r.Mapper.MapObservation(ctx, observation)
+		if err != nil {
+			return err
+		}
+		if r.Validator != nil {
+			if err := r.Validator.Validate(ctx, event, mode); err != nil {
+				if r.InvalidHandler != nil {
+					if emitErr := r.InvalidHandler.Handle(ctx, event); emitErr != nil {
+						return emitErr
+					}
+					continue
+				}
+				return err
+			}
+		}
+		if err := r.Handler.Handle(ctx, event); err != nil {
 			return err
 		}
 	}

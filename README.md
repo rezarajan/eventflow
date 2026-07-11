@@ -2,7 +2,8 @@
 
 Eventflow is a Go SDK and declarative runtime for CloudEvents pipelines. It
 loads `eventflow.dev/v1alpha1` YAML resources, validates their graph, compiles
-them into small Go interfaces, and runs receiver-to-emitter flows.
+them into small Go interfaces, and runs receiver-based event flows or
+observer-based platform activity flows.
 
 Module path:
 
@@ -18,7 +19,7 @@ explicitly register the resource kinds they support.
 
 | Path | Purpose |
 | --- | --- |
-| `eventflow.go` | Public SDK ports: `Emitter`, `Receiver`, `Observer`, `Validator`, `Codec`, and `Runtime`. |
+| `eventflow.go` | Public SDK ports: `Emitter`, `Receiver`, `Observer`, `ObservationMapper`, `Validator`, `Codec`, and runtimes. |
 | `resource/` | Declarative resource loader, validator, graph builder, and compiler. |
 | `filesystem/` | Filesystem emitter and receiver resources. |
 | `httpflow/` | HTTP emitter and handler component. |
@@ -31,6 +32,7 @@ explicitly register the resource kinds they support.
 | `cmd/eventflow-*` | Small utility commands for emit, receive, relay, and lineage replay. |
 | `examples/school/` | Example resource config, payload schemas, and SQL DDL. |
 | `CONCEPTS.md` | Core concepts and practical authoring guide. |
+| `docs/extending.md` | SDK guide for adding contracts, flows, adapters, observers, mappers, validators, and codecs. |
 
 ## Resource Model
 
@@ -51,7 +53,8 @@ Core kinds:
 | Kind | Purpose |
 | --- | --- |
 | `EventContract` | Declares accepted CloudEvents type/envelope rules and optional payload schema references. |
-| `EventFlow` | Links one receiver or observer, contracts, emitters, and optional invalid-event routing. |
+| `EventFlow` | Links one receiver, contracts, emitters, and optional invalid-event routing. |
+| `ObservationFlow` | Links one observer, one mapper, contracts, emitters, and optional invalid-event routing. |
 
 Bundled adapter kinds:
 
@@ -64,7 +67,9 @@ Bundled adapter kinds:
 | `RedpandaEmitter` | Emits to an existing Redpanda/Kafka topic. |
 | `RedpandaReceiver` | Receives from an existing Redpanda/Kafka topic. |
 | `S3Emitter` | Emits to S3-compatible storage with an injected client. |
-| `S3NotificationObserver` | Observes object notifications with an injected notification channel. |
+| `S3NotificationFileSource` | Reads local/test S3 notification JSON lines. |
+| `S3NotificationObserver` | Converts S3 object notifications into observations. |
+| `S3ObjectCreatedMapper` | Maps S3 observations into CloudEvents for `ObservationFlow`. |
 | `DuckDBEmitter` | Writes events into Eventflow-owned DuckDB raw tables. |
 | `DuckDBReceiver` | Registered placeholder; receiver behavior is not implemented. |
 | `OpenLineageEmitter` | Wraps another emitter for OpenLineage CloudEvents. |
@@ -160,6 +165,67 @@ just topic school.events.v1
 Use `RedpandaReceiver` and `RedpandaEmitter` resources with explicit broker and
 topic settings. Eventflow connects to existing topics; it does not create or
 manage broker infrastructure at runtime.
+
+## S3 Notification Example
+
+S3 notifications are observations first, then mapped to CloudEvents. A local
+notification source can be used for development and tests:
+
+```yaml
+apiVersion: eventflow.dev/v1alpha1
+kind: S3NotificationFileSource
+metadata:
+  name: upload-notifications
+spec:
+  path: ./notifications.ndjson
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: S3NotificationObserver
+metadata:
+  name: upload-observer
+spec:
+  bucket: school-uploads
+  prefix: incoming/
+  sourceRef:
+    kind: S3NotificationFileSource
+    name: upload-notifications
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: S3ObjectCreatedMapper
+metadata:
+  name: upload-event-mapper
+spec:
+  type: document.upload.detected.v1
+  subjectTemplate: s3://{{bucket}}/{{key}}
+  data:
+    includeBucket: true
+    includeKey: true
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: ObservationFlow
+metadata:
+  name: uploads-to-events
+spec:
+  observerRef:
+    kind: S3NotificationObserver
+    name: upload-observer
+  mapperRef:
+    kind: S3ObjectCreatedMapper
+    name: upload-event-mapper
+  emitterRefs:
+    - kind: FilesystemEmitter
+      name: accepted-uploads
+```
+
+See [CONCEPTS.md](CONCEPTS.md) for the full example with contract and emitter
+resources.
+
+## Developer Guides
+
+- [CONCEPTS.md](CONCEPTS.md): core model, manifests, observers, and practical flow authoring.
+- [docs/extending.md](docs/extending.md): SDK extension guide for every supported kind of component.
+- [docs/adapters.md](docs/adapters.md): bundled adapter resource reference.
+- [docs/validation.md](docs/validation.md): validation modes and compiler checks.
 
 ## SDK Usage
 

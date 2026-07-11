@@ -10,6 +10,11 @@ import (
 	eventflow "github.com/rezarajan/eventflow"
 )
 
+// EventContractSpec defines the CloudEvents contract for one event type.
+//
+// The contract is intentionally transport-neutral. It describes the event type,
+// optional CloudEvents source/subject/content-type constraints, required
+// extension attributes, and payload schema text used by the core validator.
 type EventContractSpec struct {
 	Type               string            `yaml:"type" json:"type"`
 	Source             string            `yaml:"source,omitempty" json:"source,omitempty"`
@@ -23,6 +28,11 @@ type EventContractSpec struct {
 	Metadata           map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
+// EventFlowSpec connects a pull-based receiver to contracts and emitters.
+//
+// EventFlow is for sources that already produce CloudEvents and implement
+// eventflow.Receiver. Platform activity sources, such as S3 notifications, use
+// ObservationFlow because they require an observer and mapper before validation.
 type EventFlowSpec struct {
 	ReceiverRef     *Reference  `yaml:"receiverRef,omitempty" json:"receiverRef,omitempty"`
 	ObserverRef     *Reference  `yaml:"observerRef,omitempty" json:"observerRef,omitempty"`
@@ -34,15 +44,43 @@ type EventFlowSpec struct {
 	Mode            string      `yaml:"mode,omitempty" json:"mode,omitempty"`
 }
 
+// ObservationFlowSpec connects an observer and mapper to contracts and emitters.
+//
+// ObservationFlow is for activity that is not already a CloudEvent. The observer
+// reads platform activity, the mapper converts each observation into an event,
+// and the resulting event is validated and emitted like any other Eventflow
+// event.
+type ObservationFlowSpec struct {
+	ObserverRef     Reference   `yaml:"observerRef" json:"observerRef"`
+	MapperRef       Reference   `yaml:"mapperRef" json:"mapperRef"`
+	ContractRefs    []Reference `yaml:"contractRefs,omitempty" json:"contractRefs,omitempty"`
+	EmitterRefs     []Reference `yaml:"emitterRefs,omitempty" json:"emitterRefs,omitempty"`
+	InvalidEventRef *Reference  `yaml:"invalidEventRef,omitempty" json:"invalidEventRef,omitempty"`
+	Mode            string      `yaml:"mode,omitempty" json:"mode,omitempty"`
+}
+
+// Flow is the compiled runtime form of an EventFlow resource.
 type Flow struct {
 	Name           string
 	Runtime        eventflow.Runtime
-	Observer       eventflow.Observer
 	Contracts      []EventContractSpec
 	Emitters       []eventflow.Emitter
 	InvalidEmitter eventflow.Emitter
 }
 
+// ObservationFlow is the compiled runtime form of an ObservationFlow resource.
+type ObservationFlow struct {
+	Name           string
+	Runtime        eventflow.ObservationRuntime
+	Contracts      []EventContractSpec
+	Emitters       []eventflow.Emitter
+	InvalidEmitter eventflow.Emitter
+}
+
+// RegisterCore registers EventContract, EventFlow, and ObservationFlow.
+//
+// NewCatalog calls RegisterCore automatically. Call RegisterCore directly only
+// when constructing a custom Catalog implementation path.
 func RegisterCore(catalog *Catalog) {
 	_ = Register(catalog, Definition[EventContractSpec]{
 		GVK: GVK("EventContract"),
@@ -67,8 +105,11 @@ func RegisterCore(catalog *Catalog) {
 	_ = Register(catalog, Definition[EventFlowSpec]{
 		GVK: GVK("EventFlow"),
 		Validate: func(_ context.Context, spec EventFlowSpec) error {
-			if (spec.ReceiverRef == nil) == (spec.ObserverRef == nil) {
-				return fmt.Errorf("exactly one of receiverRef or observerRef is required")
+			if spec.ObserverRef != nil {
+				return fmt.Errorf("EventFlow does not support observerRef; use ObservationFlow")
+			}
+			if spec.ReceiverRef == nil {
+				return fmt.Errorf("receiverRef is required")
 			}
 			if len(spec.EmitterRefs) == 0 {
 				return fmt.Errorf("at least one emitterRef is required")
@@ -85,11 +126,6 @@ func RegisterCore(catalog *Catalog) {
 			if spec.ReceiverRef != nil {
 				ref := *spec.ReceiverRef
 				ref.Capability = CapabilityReceiver
-				refs = append(refs, ref)
-			}
-			if spec.ObserverRef != nil {
-				ref := *spec.ObserverRef
-				ref.Capability = CapabilityObserver
 				refs = append(refs, ref)
 			}
 			for _, ref := range spec.ContractRefs {
@@ -124,12 +160,6 @@ func RegisterCore(catalog *Catalog) {
 					return Flow{}, err
 				}
 			}
-			if spec.ObserverRef != nil {
-				flow.Observer, err = bctx.Observer(*spec.ObserverRef)
-				if err != nil {
-					return Flow{}, err
-				}
-			}
 			for _, ref := range spec.ContractRefs {
 				obj, err := bctx.Get(ref)
 				if err != nil {
@@ -159,6 +189,90 @@ func RegisterCore(catalog *Catalog) {
 			return flow, nil
 		},
 		Capabilities: []Capability{CapabilityComponent, CapabilityEventFlow},
+	})
+	_ = Register(catalog, Definition[ObservationFlowSpec]{
+		GVK: GVK("ObservationFlow"),
+		Validate: func(_ context.Context, spec ObservationFlowSpec) error {
+			if spec.ObserverRef.Kind == "" || spec.ObserverRef.Name == "" {
+				return fmt.Errorf("observerRef kind and name are required")
+			}
+			if spec.MapperRef.Kind == "" || spec.MapperRef.Name == "" {
+				return fmt.Errorf("mapperRef kind and name are required")
+			}
+			if len(spec.EmitterRefs) == 0 {
+				return fmt.Errorf("at least one emitterRef is required")
+			}
+			if spec.Mode != "" {
+				if _, err := validationMode(spec.Mode); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		References: func(spec ObservationFlowSpec) []Reference {
+			observerRef := spec.ObserverRef
+			observerRef.Capability = CapabilityObserver
+			mapperRef := spec.MapperRef
+			mapperRef.Capability = CapabilityObservationMapper
+			refs := []Reference{observerRef, mapperRef}
+			for _, ref := range spec.ContractRefs {
+				ref.Capability = CapabilityEventContract
+				refs = append(refs, ref)
+			}
+			for _, ref := range spec.EmitterRefs {
+				ref.Capability = CapabilityEmitter
+				refs = append(refs, ref)
+			}
+			if spec.InvalidEventRef != nil {
+				ref := *spec.InvalidEventRef
+				ref.Capability = CapabilityEmitter
+				refs = append(refs, ref)
+			}
+			return refs
+		},
+		Build: func(_ context.Context, bctx BuildContext, spec ObservationFlowSpec) (any, error) {
+			flow := ObservationFlow{Name: "observationflow"}
+			var err error
+			flow.Runtime.Observer, err = bctx.Observer(spec.ObserverRef)
+			if err != nil {
+				return ObservationFlow{}, err
+			}
+			flow.Runtime.Mapper, err = bctx.ObservationMapper(spec.MapperRef)
+			if err != nil {
+				return ObservationFlow{}, err
+			}
+			for _, ref := range spec.ContractRefs {
+				obj, err := bctx.Get(ref)
+				if err != nil {
+					return ObservationFlow{}, err
+				}
+				flow.Contracts = append(flow.Contracts, obj.(EventContractSpec))
+			}
+			for _, ref := range spec.EmitterRefs {
+				emitter, err := bctx.Emitter(ref)
+				if err != nil {
+					return ObservationFlow{}, err
+				}
+				flow.Emitters = append(flow.Emitters, emitter)
+			}
+			if spec.InvalidEventRef != nil {
+				flow.InvalidEmitter, err = bctx.Emitter(*spec.InvalidEventRef)
+				if err != nil {
+					return ObservationFlow{}, err
+				}
+			}
+			flow.Runtime.Validator = contractValidator{contracts: flow.Contracts}
+			flow.Runtime.Handler = emitterHandler{emitters: flow.Emitters}
+			if flow.InvalidEmitter != nil {
+				flow.Runtime.InvalidHandler = emitterHandler{emitters: []eventflow.Emitter{flow.InvalidEmitter}}
+			}
+			flow.Runtime.Mode, err = validationMode(spec.Mode)
+			if err != nil {
+				return ObservationFlow{}, err
+			}
+			return flow, nil
+		},
+		Capabilities: []Capability{CapabilityComponent, CapabilityObservationFlow},
 	})
 }
 

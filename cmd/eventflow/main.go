@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -78,7 +77,10 @@ func runCommand(ctx context.Context, command string, args []string, stdout io.Wr
 			return err
 		}
 		if len(compiled.Flows) == 0 {
-			return fmt.Errorf("no EventFlow resources compiled")
+			if len(compiled.ObservationFlows) == 0 {
+				return fmt.Errorf("no EventFlow or ObservationFlow resources compiled")
+			}
+			return runObservationFlow(ctx, compiled.ObservationFlows[0])
 		}
 		return runFlow(ctx, compiled.Flows[0])
 	default:
@@ -102,39 +104,23 @@ func runFlow(ctx context.Context, flow resource.Flow) error {
 	if flow.Runtime.Receiver != nil {
 		return flow.Runtime.Run(ctx)
 	}
-	if flow.Observer == nil {
-		return fmt.Errorf("flow has neither receiver nor observer")
-	}
-	if err := flow.Observer.Open(ctx); err != nil {
-		return err
-	}
-	defer flow.Observer.Close(ctx)
-	for {
-		observation, err := flow.Observer.Observe(ctx)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
+	return fmt.Errorf("flow has no receiver")
+}
+
+func runObservationFlow(ctx context.Context, flow resource.ObservationFlow) error {
+	for _, emitter := range flow.Emitters {
+		if err := emitter.Open(ctx); err != nil {
 			return err
 		}
-		if observation.Event == nil {
-			continue
-		}
-		if flow.Runtime.Validator != nil {
-			if err := flow.Runtime.Validator.Validate(ctx, *observation.Event, flow.Runtime.Mode); err != nil {
-				if flow.InvalidEmitter != nil {
-					if emitErr := flow.InvalidEmitter.Emit(ctx, *observation.Event); emitErr != nil {
-						return emitErr
-					}
-					continue
-				}
-				return err
-			}
-		}
-		if err := flow.Runtime.Handler.Handle(ctx, *observation.Event); err != nil {
+		defer emitter.Close(ctx)
+	}
+	if flow.InvalidEmitter != nil {
+		if err := flow.InvalidEmitter.Open(ctx); err != nil {
 			return err
 		}
+		defer flow.InvalidEmitter.Close(ctx)
 	}
+	return flow.Runtime.Run(ctx)
 }
 
 type multiFlag []string

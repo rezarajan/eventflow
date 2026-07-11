@@ -7,9 +7,9 @@ import eventflow "github.com/rezarajan/eventflow"
 ```
 
 Primary interfaces are `Emitter`, `BatchEmitter`, `Receiver`, `BatchReceiver`,
-`Observer`, `EventHandler`, `ObservationHandler`, `Validator`, `Codec`, and
-`Closer`. All methods accept `context.Context` and return typed errors where
-validation or unsupported capabilities are involved.
+`Observer`, `ObservationMapper`, `EventHandler`, `ObservationHandler`,
+`Validator`, `Codec`, and `Closer`. All methods accept `context.Context` and
+return typed errors where validation or unsupported capabilities are involved.
 
 ```go
 runtime := eventflow.Runtime{
@@ -21,6 +21,8 @@ runtime := eventflow.Runtime{
 err := runtime.Run(ctx)
 ```
 
+Use `ObservationRuntime` when the source is platform activity that must be
+mapped into CloudEvents before validation and emission.
+
 Strict validation is the default. Other modes are explicit:
 `compatible`, `permissive`, and `disabled`.
-

@@ -11,6 +11,10 @@ import (
 	"github.com/rezarajan/eventflow/s3"
 )
 
+// Register adds all adapters shipped in this module to catalog.
+//
+// Applications that need a smaller surface can call individual adapter package
+// Register functions instead.
 func Register(catalog *resource.Catalog) error {
 	for _, register := range []func(*resource.Catalog) error{
 		filesystem.Register,

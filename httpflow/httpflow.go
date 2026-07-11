@@ -21,9 +21,12 @@ import (
 type Mode string
 
 const (
+	// ModeStructuredCloudEvents posts structured CloudEvents JSON.
 	ModeStructuredCloudEvents Mode = "structured-cloudevents"
-	ModeBinaryCloudEvents     Mode = "binary-cloudevents"
-	ModeNativeOpenLineage     Mode = "native-openlineage"
+	// ModeBinaryCloudEvents posts CloudEvents binary-mode HTTP requests.
+	ModeBinaryCloudEvents Mode = "binary-cloudevents"
+	// ModeNativeOpenLineage posts raw OpenLineage JSON.
+	ModeNativeOpenLineage Mode = "native-openlineage"
 )
 
 // EmitterConfig defines HTTP emitter settings.
@@ -36,6 +39,7 @@ type EmitterConfig struct {
 	IdempotencyHeader string
 }
 
+// HTTPEmitterSpec is the declarative spec for HTTPEmitter.
 type HTTPEmitterSpec struct {
 	URL               string `yaml:"url" json:"url"`
 	Mode              string `yaml:"mode,omitempty" json:"mode,omitempty"`
@@ -44,10 +48,15 @@ type HTTPEmitterSpec struct {
 	IdempotencyHeader string `yaml:"idempotencyHeader,omitempty" json:"idempotencyHeader,omitempty"`
 }
 
+// HTTPReceiverSpec configures the HTTP handler component.
+//
+// The current HTTPReceiver resource is an http.Handler integration point, not a
+// pull-based eventflow.Receiver. It is therefore not a valid EventFlow receiverRef.
 type HTTPReceiverSpec struct {
 	MaxBody int64 `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
 }
 
+// Register adds HTTPEmitter and HTTPReceiver resource definitions.
 func Register(catalog *resource.Catalog) error {
 	if err := resource.Register(catalog, resource.Definition[HTTPEmitterSpec]{
 		GVK: resource.GVK("HTTPEmitter"),

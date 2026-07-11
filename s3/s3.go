@@ -2,14 +2,19 @@
 package s3
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
+
+	sdk "github.com/cloudevents/sdk-go/v2"
 
 	eventflow "github.com/rezarajan/eventflow"
 	"github.com/rezarajan/eventflow/resource"
@@ -57,7 +62,12 @@ type Config struct {
 	Client             Client
 }
 
-type ResourceSpec struct {
+// EmitterSpec is the declarative spec for S3Emitter.
+//
+// S3Emitter writes structured CloudEvents as JSON objects or NDJSON batch
+// objects to an existing S3-compatible bucket. The adapter does not provision
+// buckets, credentials, notifications, or IAM policies.
+type EmitterSpec struct {
 	Endpoint           string            `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
 	Region             string            `yaml:"region,omitempty" json:"region,omitempty"`
 	Bucket             string            `yaml:"bucket" json:"bucket"`
@@ -67,40 +77,153 @@ type ResourceSpec struct {
 	Tags               map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
 	OneEventPerObject  bool              `yaml:"oneEventPerObject,omitempty" json:"oneEventPerObject,omitempty"`
 	MultipartThreshold int64             `yaml:"multipartThreshold,omitempty" json:"multipartThreshold,omitempty"`
-	FetchObjects       bool              `yaml:"fetchObjects,omitempty" json:"fetchObjects,omitempty"`
 }
 
+// ObserverSpec is the declarative spec for S3NotificationObserver.
+//
+// The observer consumes object notifications from sourceRef and produces
+// Eventflow observations. It does not fetch object contents or emit CloudEvents
+// by itself; an ObservationFlow pairs it with an observation mapper.
+type ObserverSpec struct {
+	Bucket    string             `yaml:"bucket" json:"bucket"`
+	Prefix    string             `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	SourceRef resource.Reference `yaml:"sourceRef" json:"sourceRef"`
+}
+
+// NotificationFileSourceSpec is the declarative spec for S3NotificationFileSource.
+//
+// The file source is intended for tests, demos, and local runs. Each line in the
+// file must be one JSON-encoded Notification.
+type NotificationFileSourceSpec struct {
+	Path string `yaml:"path" json:"path"`
+}
+
+// ObjectCreatedMapperSpec is the declarative spec for S3ObjectCreatedMapper.
+//
+// The mapper converts S3 object notifications into CloudEvents. Type is the
+// resulting CloudEvents type, Source defaults to urn:eventflow:s3, and
+// SubjectTemplate may use {{bucket}}, {{key}}, {{eventName}}, {{etag}}, and
+// {{size}} placeholders.
+type ObjectCreatedMapperSpec struct {
+	Type            string     `yaml:"type" json:"type"`
+	Source          string     `yaml:"source,omitempty" json:"source,omitempty"`
+	SubjectTemplate string     `yaml:"subjectTemplate,omitempty" json:"subjectTemplate,omitempty"`
+	Data            MapperData `yaml:"data,omitempty" json:"data,omitempty"`
+}
+
+// MapperData controls which notification attributes are copied into event data.
+type MapperData struct {
+	IncludeBucket bool `yaml:"includeBucket,omitempty" json:"includeBucket,omitempty"`
+	IncludeKey    bool `yaml:"includeKey,omitempty" json:"includeKey,omitempty"`
+	IncludeEvent  bool `yaml:"includeEvent,omitempty" json:"includeEvent,omitempty"`
+	IncludeETag   bool `yaml:"includeETag,omitempty" json:"includeETag,omitempty"`
+	IncludeSize   bool `yaml:"includeSize,omitempty" json:"includeSize,omitempty"`
+}
+
+// NotificationSource opens a stream of S3-compatible notifications.
+//
+// Production integrations typically implement NotificationSource using SQS,
+// EventBridge, MinIO bucket notifications, or another queue fed by object
+// storage. NotificationFileSource is a local file implementation.
+type NotificationSource interface {
+	OpenNotifications(ctx context.Context) (<-chan Notification, error)
+}
+
+// Register adds S3Emitter, S3NotificationObserver, S3NotificationFileSource,
+// and S3ObjectCreatedMapper resource definitions.
 func Register(catalog *resource.Catalog) error {
-	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
+	if err := resource.Register(catalog, resource.Definition[EmitterSpec]{
 		GVK:      resource.GVK("S3Emitter"),
-		Validate: validateResource,
-		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
-			return NewEmitter(configFromSpec(spec)), nil
+		Validate: validateEmitterResource,
+		Build: func(_ context.Context, _ resource.BuildContext, spec EmitterSpec) (any, error) {
+			return NewEmitter(configFromEmitterSpec(spec)), nil
 		},
 		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
 	}); err != nil {
 		return err
 	}
-	return resource.Register(catalog, resource.Definition[ResourceSpec]{
+	if err := resource.Register(catalog, resource.Definition[ObserverSpec]{
 		GVK:      resource.GVK("S3NotificationObserver"),
-		Validate: validateResource,
-		Build: func(_ context.Context, _ resource.BuildContext, spec ResourceSpec) (any, error) {
-			observer := NewObserver(configFromSpec(spec), nil)
-			observer.FetchObjects = spec.FetchObjects
+		Validate: validateObserverResource,
+		References: func(spec ObserverSpec) []resource.Reference {
+			ref := spec.SourceRef
+			ref.Capability = resource.CapabilityObservationSource
+			return []resource.Reference{ref}
+		},
+		Build: func(_ context.Context, bctx resource.BuildContext, spec ObserverSpec) (any, error) {
+			sourceObj, err := bctx.Get(spec.SourceRef)
+			if err != nil {
+				return nil, err
+			}
+			source, ok := sourceObj.(NotificationSource)
+			if !ok {
+				return nil, fmt.Errorf("%s does not provide S3 notifications", spec.SourceRef.Key())
+			}
+			observer := NewObserver(Config{Bucket: spec.Bucket, Prefix: spec.Prefix}, nil)
+			observer.Source = source
 			return observer, nil
 		},
 		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityObserver},
+	}); err != nil {
+		return err
+	}
+	if err := resource.Register(catalog, resource.Definition[NotificationFileSourceSpec]{
+		GVK: resource.GVK("S3NotificationFileSource"),
+		Validate: func(_ context.Context, spec NotificationFileSourceSpec) error {
+			if strings.TrimSpace(spec.Path) == "" {
+				return fmt.Errorf("path is required")
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec NotificationFileSourceSpec) (any, error) {
+			return NotificationFileSource{Path: spec.Path}, nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityObservationSource},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[ObjectCreatedMapperSpec]{
+		GVK: resource.GVK("S3ObjectCreatedMapper"),
+		Default: func(spec *ObjectCreatedMapperSpec) error {
+			if spec.Source == "" {
+				spec.Source = "urn:eventflow:s3"
+			}
+			if spec.SubjectTemplate == "" {
+				spec.SubjectTemplate = "s3://{{bucket}}/{{key}}"
+			}
+			return nil
+		},
+		Validate: func(_ context.Context, spec ObjectCreatedMapperSpec) error {
+			if strings.TrimSpace(spec.Type) == "" {
+				return fmt.Errorf("type is required")
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec ObjectCreatedMapperSpec) (any, error) {
+			return ObjectCreatedMapper{Spec: spec}, nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityObservationMapper},
 	})
 }
 
-func validateResource(_ context.Context, spec ResourceSpec) error {
+func validateEmitterResource(_ context.Context, spec EmitterSpec) error {
 	if spec.Bucket == "" {
 		return fmt.Errorf("bucket is required")
 	}
 	return nil
 }
 
-func configFromSpec(spec ResourceSpec) Config {
+func validateObserverResource(_ context.Context, spec ObserverSpec) error {
+	if spec.Bucket == "" {
+		return fmt.Errorf("bucket is required")
+	}
+	if spec.SourceRef.Kind == "" || spec.SourceRef.Name == "" {
+		return fmt.Errorf("sourceRef kind and name are required")
+	}
+	return nil
+}
+
+func configFromEmitterSpec(spec EmitterSpec) Config {
 	return Config{
 		Endpoint: spec.Endpoint, Region: spec.Region, Bucket: spec.Bucket, Prefix: spec.Prefix,
 		PathStyle: spec.PathStyle, Metadata: spec.Metadata, Tags: spec.Tags,
@@ -196,16 +319,19 @@ func (e *Emitter) putEvent(ctx context.Context, event eventflow.Event) error {
 
 // Notification describes one S3 or MinIO object notification.
 type Notification struct {
-	Bucket string
-	Key    string
-	Time   time.Time
+	Bucket    string    `json:"bucket" yaml:"bucket"`
+	Key       string    `json:"key" yaml:"key"`
+	EventName string    `json:"eventName,omitempty" yaml:"eventName,omitempty"`
+	ETag      string    `json:"etag,omitempty" yaml:"etag,omitempty"`
+	Size      int64     `json:"size,omitempty" yaml:"size,omitempty"`
+	Time      time.Time `json:"time,omitempty" yaml:"time,omitempty"`
 }
 
-// Observer decodes object notifications into observations and can fetch CloudEvents.
+// Observer decodes object notifications into observations.
 type Observer struct {
 	config        Config
 	Notifications <-chan Notification
-	FetchObjects  bool
+	Source        NotificationSource
 }
 
 // NewObserver constructs an S3 observer.
@@ -218,58 +344,175 @@ func (o *Observer) Open(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if o.Notifications == nil {
-		return fmt.Errorf("s3 notification channel is required")
+	if o.Notifications == nil && o.Source != nil {
+		notifications, err := o.Source.OpenNotifications(ctx)
+		if err != nil {
+			return err
+		}
+		o.Notifications = notifications
 	}
-	if o.FetchObjects && o.config.Client == nil {
-		return fmt.Errorf("s3 client is required when FetchObjects is enabled")
+	if o.Notifications == nil {
+		return fmt.Errorf("s3 notification source is required")
 	}
 	return nil
 }
 
 // Observe reads one object notification.
 func (o *Observer) Observe(ctx context.Context) (eventflow.Observation, error) {
-	select {
-	case <-ctx.Done():
-		return eventflow.Observation{}, ctx.Err()
-	case notification, ok := <-o.Notifications:
-		if !ok {
-			return eventflow.Observation{}, io.EOF
-		}
-		observation := eventflow.Observation{
-			Source:     "s3://" + notification.Bucket,
-			Subject:    notification.Key,
-			Time:       notification.Time,
-			Attributes: map[string]string{"bucket": notification.Bucket, "key": notification.Key},
-		}
-		if o.FetchObjects {
-			event, err := o.fetchEvent(ctx, notification)
-			if err != nil {
-				return eventflow.Observation{}, err
+	for {
+		select {
+		case <-ctx.Done():
+			return eventflow.Observation{}, ctx.Err()
+		case notification, ok := <-o.Notifications:
+			if !ok {
+				return eventflow.Observation{}, io.EOF
 			}
-			observation.Event = &event
+			if !o.matches(notification) {
+				continue
+			}
+			observation := eventflow.Observation{
+				Source:     "s3://" + notification.Bucket,
+				Subject:    notification.Key,
+				Time:       notification.Time,
+				Attributes: notificationAttributes(notification),
+			}
+			return observation, nil
 		}
-		return observation, nil
 	}
 }
 
 // Close releases observer resources.
 func (*Observer) Close(ctx context.Context) error { return ctx.Err() }
 
-func (o *Observer) fetchEvent(ctx context.Context, notification Notification) (eventflow.Event, error) {
-	out, err := o.config.Client.GetObject(ctx, GetObjectInput{Bucket: notification.Bucket, Key: notification.Key})
+func (o *Observer) matches(notification Notification) bool {
+	if o.config.Bucket != "" && notification.Bucket != o.config.Bucket {
+		return false
+	}
+	if o.config.Prefix != "" && !strings.HasPrefix(notification.Key, o.config.Prefix) {
+		return false
+	}
+	return true
+}
+
+type NotificationFileSource struct {
+	Path string
+}
+
+// OpenNotifications reads all configured file notifications and streams them.
+func (s NotificationFileSource) OpenNotifications(ctx context.Context) (<-chan Notification, error) {
+	file, err := os.Open(s.Path)
 	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var notifications []Notification
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var notification Notification
+		if err := json.Unmarshal(scanner.Bytes(), &notification); err != nil {
+			return nil, fmt.Errorf("decode s3 notification %s: %w", s.Path, err)
+		}
+		notifications = append(notifications, notification)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read s3 notifications %s: %w", s.Path, err)
+	}
+	out := make(chan Notification)
+	go func() {
+		defer close(out)
+		for _, notification := range notifications {
+			select {
+			case <-ctx.Done():
+				return
+			case out <- notification:
+			}
+		}
+	}()
+	return out, nil
+}
+
+type ObjectCreatedMapper struct {
+	Spec ObjectCreatedMapperSpec
+}
+
+// MapObservation converts one S3 observation into a CloudEvent.
+func (m ObjectCreatedMapper) MapObservation(ctx context.Context, observation eventflow.Observation) (eventflow.Event, error) {
+	if err := ctx.Err(); err != nil {
 		return eventflow.Event{}, err
 	}
-	defer out.Body.Close()
-	var event eventflow.Event
-	if err := json.NewDecoder(out.Body).Decode(&event); err != nil {
+	bucket := observation.Attributes["bucket"]
+	key := observation.Attributes["key"]
+	if bucket == "" || key == "" {
+		return eventflow.Event{}, fmt.Errorf("s3 observation requires bucket and key attributes")
+	}
+	event := sdk.NewEvent(sdk.VersionV1)
+	event.SetID(stableEventID(bucket, key, observation.Time))
+	event.SetType(m.Spec.Type)
+	event.SetSource(m.Spec.Source)
+	event.SetSubject(renderSubject(m.Spec.SubjectTemplate, observation.Attributes))
+	if !observation.Time.IsZero() {
+		event.SetTime(observation.Time)
+	}
+	data := map[string]any{}
+	if m.Spec.Data.IncludeBucket {
+		data["bucket"] = bucket
+	}
+	if m.Spec.Data.IncludeKey {
+		data["key"] = key
+	}
+	if m.Spec.Data.IncludeEvent && observation.Attributes["eventName"] != "" {
+		data["eventName"] = observation.Attributes["eventName"]
+	}
+	if m.Spec.Data.IncludeETag && observation.Attributes["etag"] != "" {
+		data["etag"] = observation.Attributes["etag"]
+	}
+	if m.Spec.Data.IncludeSize && observation.Attributes["size"] != "" {
+		size, err := strconv.ParseInt(observation.Attributes["size"], 10, 64)
+		if err != nil {
+			return eventflow.Event{}, fmt.Errorf("invalid s3 object size %q", observation.Attributes["size"])
+		}
+		data["size"] = size
+	}
+	if len(data) == 0 {
+		data["bucket"] = bucket
+		data["key"] = key
+	}
+	if err := event.SetData(sdk.ApplicationJSON, data); err != nil {
 		return eventflow.Event{}, err
 	}
 	if err := event.Validate(); err != nil {
-		return eventflow.Event{}, eventflow.ValidationError("validate cloudevent", err)
+		return eventflow.Event{}, eventflow.ValidationError("validate mapped s3 event", err)
 	}
 	return event, nil
+}
+
+func notificationAttributes(notification Notification) map[string]string {
+	attrs := map[string]string{"bucket": notification.Bucket, "key": notification.Key}
+	if notification.EventName != "" {
+		attrs["eventName"] = notification.EventName
+	}
+	if notification.ETag != "" {
+		attrs["etag"] = notification.ETag
+	}
+	if notification.Size > 0 {
+		attrs["size"] = strconv.FormatInt(notification.Size, 10)
+	}
+	return attrs
+}
+
+func renderSubject(template string, attrs map[string]string) string {
+	out := template
+	for _, key := range []string{"bucket", "key", "eventName", "etag", "size"} {
+		out = strings.ReplaceAll(out, "{{"+key+"}}", attrs[key])
+	}
+	return out
+}
+
+func stableEventID(bucket string, key string, t time.Time) string {
+	if t.IsZero() {
+		return safeKey(bucket + "/" + key)
+	}
+	return safeKey(bucket + "/" + key + "/" + t.UTC().Format(time.RFC3339Nano))
 }
 
 func safeKey(value string) string {

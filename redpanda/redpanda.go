@@ -18,6 +18,7 @@ type EmitterConfig = producer.Config
 // ReceiverConfig configures a Redpanda receiver.
 type ReceiverConfig = consumer.Config
 
+// EmitterSpec is the declarative spec for RedpandaEmitter.
 type EmitterSpec struct {
 	Brokers   []string `yaml:"brokers" json:"brokers"`
 	Topic     string   `yaml:"topic" json:"topic"`
@@ -25,6 +26,7 @@ type EmitterSpec struct {
 	BatchSize int      `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
 }
 
+// ReceiverSpec is the declarative spec for RedpandaReceiver.
 type ReceiverSpec struct {
 	Brokers     []string `yaml:"brokers" json:"brokers"`
 	Topic       string   `yaml:"topic" json:"topic"`
@@ -32,6 +34,7 @@ type ReceiverSpec struct {
 	StartOffset string   `yaml:"startOffset,omitempty" json:"startOffset,omitempty"`
 }
 
+// Register adds RedpandaEmitter and RedpandaReceiver resource definitions.
 func Register(catalog *resource.Catalog) error {
 	if err := resource.Register(catalog, resource.Definition[EmitterSpec]{
 		GVK: resource.GVK("RedpandaEmitter"),

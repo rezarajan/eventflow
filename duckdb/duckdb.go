@@ -16,11 +16,16 @@ type Config struct {
 	RawTable string
 }
 
+// ResourceSpec is the declarative spec shared by DuckDBEmitter and DuckDBReceiver.
+//
+// DuckDBEmitter is implemented. DuckDBReceiver is registered so manifests fail
+// with an explicit build error instead of an unknown-kind error.
 type ResourceSpec struct {
 	Path     string `yaml:"path" json:"path"`
 	RawTable string `yaml:"rawTable,omitempty" json:"rawTable,omitempty"`
 }
 
+// Register adds DuckDB resource definitions.
 func Register(catalog *resource.Catalog) error {
 	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
 		GVK: resource.GVK("DuckDBEmitter"),

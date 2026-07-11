@@ -14,8 +14,10 @@ import (
 
 const (
 	// CloudEventType is the Eventflow CloudEvents type for OpenLineage run events.
-	CloudEventType   = "io.openlineage.run-event.v1"
-	DefaultProducer  = "github.com/rezarajan/eventflow"
+	CloudEventType = "io.openlineage.run-event.v1"
+	// DefaultProducer is used when an OpenLineage event omits producer metadata.
+	DefaultProducer = "github.com/rezarajan/eventflow"
+	// DefaultSchemaURL is the OpenLineage JSON schema URL used by helper constructors.
 	DefaultSchemaURL = "https://openlineage.io/spec/2-0-2/OpenLineage.json"
 )
 
@@ -63,24 +65,39 @@ type Emitter interface {
 	EmitLineage(ctx context.Context, event Event) error
 }
 
+// EmitterSpec is the declarative spec for OpenLineageEmitter.
+//
+// OpenLineageEmitter wraps another Eventflow emitter and converts native
+// OpenLineage events into CloudEvents before delegating to that target.
 type EmitterSpec struct {
 	EmitterRef Reference `yaml:"emitterRef" json:"emitterRef"`
 	Source     string    `yaml:"source,omitempty" json:"source,omitempty"`
 }
 
+// Reference aliases resource.Reference for manifest-facing lineage specs.
 type Reference = resource.Reference
 
+// OpenLineageEmitter wraps an Eventflow emitter with native OpenLineage support.
 type OpenLineageEmitter struct {
 	target eventflow.Emitter
 	source string
 }
 
-func (e *OpenLineageEmitter) Name() string                   { return "openlineage" }
+// Name returns the adapter name.
+func (e *OpenLineageEmitter) Name() string { return "openlineage" }
+
+// Open opens the wrapped target emitter.
 func (e *OpenLineageEmitter) Open(ctx context.Context) error { return e.target.Open(ctx) }
+
+// Emit delegates an already-normalized CloudEvent to the wrapped target emitter.
 func (e *OpenLineageEmitter) Emit(ctx context.Context, event eventflow.Event) error {
 	return e.target.Emit(ctx, event)
 }
+
+// Close closes the wrapped target emitter.
 func (e *OpenLineageEmitter) Close(ctx context.Context) error { return e.target.Close(ctx) }
+
+// EmitLineage wraps event as a CloudEvent and emits it through the target.
 func (e *OpenLineageEmitter) EmitLineage(ctx context.Context, event Event) error {
 	wrapped, err := WrapCloudEvent(event, e.source)
 	if err != nil {
@@ -89,6 +106,7 @@ func (e *OpenLineageEmitter) EmitLineage(ctx context.Context, event Event) error
 	return e.target.Emit(ctx, wrapped)
 }
 
+// Register adds the OpenLineageEmitter resource definition.
 func Register(catalog *resource.Catalog) error {
 	return resource.Register(catalog, resource.Definition[EmitterSpec]{
 		GVK: resource.GVK("OpenLineageEmitter"),

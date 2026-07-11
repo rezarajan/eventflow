@@ -17,6 +17,11 @@ var envelopeFields = map[string]bool{
 	"spec":       true,
 }
 
+// LoadFiles reads one or more Eventflow manifest files.
+//
+// Each file may contain a single resource or a YAML multi-document stream.
+// Empty documents are ignored. The loader validates only the generic resource
+// envelope; call Validate or Compile to decode and validate kind-specific specs.
 func LoadFiles(paths ...string) ([]Document, error) {
 	var docs []Document
 	for _, path := range paths {

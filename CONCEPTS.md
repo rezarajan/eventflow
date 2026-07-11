@@ -13,7 +13,7 @@ An Eventflow system has four layers:
 | Event | A CloudEvent carried through the system. |
 | Contract | Rules for which CloudEvents a flow accepts. |
 | Component | An adapter instance such as a filesystem receiver or Redpanda emitter. |
-| EventFlow | The wiring that connects components and contracts into a runtime. |
+| Flow | The wiring that connects components and contracts into a runtime. |
 
 The root package defines the runtime ports:
 
@@ -23,9 +23,11 @@ The root package defines the runtime ports:
 | `BatchEmitter` | Sends event batches when the destination supports it. |
 | `Receiver` | Pulls events from a source. |
 | `Observer` | Turns platform activity into observations. |
+| `ObservationMapper` | Converts an observation into a normalized CloudEvent. |
 | `Validator` | Validates CloudEvents before handling. |
 | `Codec` | Encodes and decodes event representations. |
 | `Runtime` | Runs a receiver, validator, and handler together. |
+| `ObservationRuntime` | Runs an observer, mapper, validator, and handler together. |
 
 The `resource` package compiles YAML resources into these ports.
 
@@ -76,10 +78,13 @@ Common capabilities:
 | `emitter` | Can emit events. |
 | `receiver` | Can receive events. |
 | `observer` | Can observe platform activity. |
+| `observationMapper` | Can map observations into CloudEvents. |
+| `observationSource` | Can provide an adapter-specific observation input source. |
 | `validator` | Can validate events. |
 | `codec` | Can encode or decode events. |
 | `eventContract` | Is an event contract. |
 | `eventFlow` | Is a compiled flow. |
+| `observationFlow` | Is a compiled observation flow. |
 
 If an `EventFlow.receiverRef` points at an emitter, validation fails with a
 capability mismatch.
@@ -136,6 +141,12 @@ Important fields:
 Use stable, versioned event type names such as `student.enrolled.v1`. Treat a
 breaking payload change as a new event type version.
 
+An `EventContract` can filter and validate CloudEvents without a payload schema.
+For example, a contract with only `type` and `sourceRegex` still rejects
+unexpected CloudEvents. It does not observe external activity and it does not
+turn platform notifications into CloudEvents; that is the job of an observer
+and mapper.
+
 ## Event Flows
 
 An `EventFlow` composes resources:
@@ -157,9 +168,10 @@ spec:
       name: school-events-out
 ```
 
-An event flow must have exactly one `receiverRef` or `observerRef`. It must have
-at least one emitter. Contracts are optional but recommended; without contracts,
-there is no declarative domain boundary for accepted event types.
+An event flow must have one `receiverRef` and at least one emitter. Use
+`ObservationFlow` for observer-based sources. Contracts are optional but
+recommended; without contracts, there is no declarative domain boundary for
+accepted event types.
 
 Flow startup validates:
 
@@ -169,10 +181,109 @@ Flow startup validates:
 - dependency cycles are absent,
 - every spec matches its registered schema surface.
 
+## Observers And Observation Flows
+
+An `Observer` watches platform activity that is not necessarily an Eventflow
+CloudEvent. An S3 object-created notification is a good example: it is a fact
+about object storage, not a domain event yet.
+
+Eventflow represents that fact as an `Observation`:
+
+```json
+{
+  "source": "s3://school-uploads",
+  "subject": "incoming/a.pdf",
+  "attributes": {
+    "bucket": "school-uploads",
+    "key": "incoming/a.pdf",
+    "eventName": "ObjectCreated:Put",
+    "etag": "abc",
+    "size": "123"
+  }
+}
+```
+
+An `ObservationFlow` wires an observer to a mapper. The mapper conforms the
+observation into a normal CloudEvent, then contracts and emitters work exactly
+as they do in an `EventFlow`.
+
+```yaml
+apiVersion: eventflow.dev/v1alpha1
+kind: S3NotificationFileSource
+metadata:
+  name: upload-notifications
+spec:
+  path: ./notifications.ndjson
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: S3NotificationObserver
+metadata:
+  name: upload-observer
+spec:
+  bucket: school-uploads
+  prefix: incoming/
+  sourceRef:
+    kind: S3NotificationFileSource
+    name: upload-notifications
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: S3ObjectCreatedMapper
+metadata:
+  name: upload-event-mapper
+spec:
+  type: document.upload.detected.v1
+  source: urn:eventflow:s3
+  subjectTemplate: s3://{{bucket}}/{{key}}
+  data:
+    includeBucket: true
+    includeKey: true
+    includeEvent: true
+    includeETag: true
+    includeSize: true
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: EventContract
+metadata:
+  name: upload-detected
+spec:
+  type: document.upload.detected.v1
+  dataContentType: application/json
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: FilesystemEmitter
+metadata:
+  name: accepted-uploads
+spec:
+  path: ./accepted-uploads.ndjson
+  format: ndjson
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: ObservationFlow
+metadata:
+  name: uploads-to-events
+spec:
+  observerRef:
+    kind: S3NotificationObserver
+    name: upload-observer
+  mapperRef:
+    kind: S3ObjectCreatedMapper
+    name: upload-event-mapper
+  contractRefs:
+    - kind: EventContract
+      name: upload-detected
+  emitterRefs:
+    - kind: FilesystemEmitter
+      name: accepted-uploads
+```
+
+`S3NotificationFileSource` is a local/test source that reads one JSON
+notification per line. Production transports such as SQS, SNS, EventBridge, or
+MinIO webhooks should be added as additional observation source resources, not
+as contract fields.
+
 ## Invalid Event Routing
 
-Use `invalidEventRef` to send invalid events to a separate emitter when a flow
-handles observation-driven events:
+Use `invalidEventRef` to send invalid mapped events to a separate emitter:
 
 ```yaml
 invalidEventRef:
@@ -333,3 +444,7 @@ func Register(catalog *resource.Catalog) error {
 
 Do not register from `init()`. Let the caller decide which resource kinds are
 available.
+
+For a deeper implementation guide covering emitters, receivers, observers,
+observation sources, mappers, validators, codecs, defaults, value sources, and
+tests, see [docs/extending.md](docs/extending.md).

@@ -8,11 +8,13 @@ import (
 	eventflow "github.com/rezarajan/eventflow"
 )
 
+// Graph is the validated dependency graph for a set of resources.
 type Graph struct {
 	nodes map[ResourceKey]*node
 	order []ResourceKey
 }
 
+// Nodes returns all resource keys in stable display order.
 func (g *Graph) Nodes() []ResourceKey {
 	if g == nil {
 		return nil
@@ -32,12 +34,20 @@ type node struct {
 	dependencies []Reference
 }
 
+// BuildContext gives resource builders access to already-built dependencies.
+//
+// Resource definitions should use the typed helpers such as Emitter, Receiver,
+// Observer, and ObservationMapper when they need a specific capability.
 type BuildContext struct {
 	graph    *Graph
 	objects  map[ResourceKey]any
 	compiled *Compiled
 }
 
+// Get returns the built object for ref.
+//
+// Get is useful for adapter-specific dependency types. Prefer the typed helper
+// methods when the dependency is an Eventflow port.
 func (b BuildContext) Get(ref Reference) (any, error) {
 	key := ref.Key()
 	obj, ok := b.objects[key]
@@ -47,6 +57,7 @@ func (b BuildContext) Get(ref Reference) (any, error) {
 	return obj, nil
 }
 
+// Emitter returns the built resource referenced by ref as an event emitter.
 func (b BuildContext) Emitter(ref Reference) (eventflowEmitter, error) {
 	obj, err := b.Get(ref)
 	if err != nil {
@@ -59,6 +70,7 @@ func (b BuildContext) Emitter(ref Reference) (eventflowEmitter, error) {
 	return emitter, nil
 }
 
+// Receiver returns the built resource referenced by ref as an event receiver.
 func (b BuildContext) Receiver(ref Reference) (eventflowReceiver, error) {
 	obj, err := b.Get(ref)
 	if err != nil {
@@ -71,6 +83,7 @@ func (b BuildContext) Receiver(ref Reference) (eventflowReceiver, error) {
 	return receiver, nil
 }
 
+// Observer returns the built resource referenced by ref as an activity observer.
 func (b BuildContext) Observer(ref Reference) (eventflowObserver, error) {
 	obj, err := b.Get(ref)
 	if err != nil {
@@ -81,6 +94,19 @@ func (b BuildContext) Observer(ref Reference) (eventflowObserver, error) {
 		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not observe activity"))
 	}
 	return observer, nil
+}
+
+// ObservationMapper returns the built resource referenced by ref as an observation mapper.
+func (b BuildContext) ObservationMapper(ref Reference) (eventflowObservationMapper, error) {
+	obj, err := b.Get(ref)
+	if err != nil {
+		return nil, err
+	}
+	mapper, ok := obj.(eventflowObservationMapper)
+	if !ok {
+		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not map observations"))
+	}
+	return mapper, nil
 }
 
 type eventflowEmitter interface {
@@ -101,11 +127,20 @@ type eventflowObserver interface {
 	Close(context.Context) error
 }
 
-type Compiled struct {
-	Objects map[ResourceKey]any
-	Flows   []Flow
+type eventflowObservationMapper interface {
+	MapObservation(context.Context, eventflow.Observation) (eventflow.Event, error)
 }
 
+// Compiled contains the objects and runnable flows produced by Compile.
+type Compiled struct {
+	Objects          map[ResourceKey]any
+	Flows            []Flow
+	ObservationFlows []ObservationFlow
+}
+
+// Validate decodes resources, checks semantics, resolves references, and builds a graph.
+//
+// Validate does not call resource Build functions and does not open adapters.
 func Validate(ctx context.Context, catalog *Catalog, docs []Document) (*Graph, error) {
 	graph := &Graph{nodes: map[ResourceKey]*node{}}
 	for _, doc := range docs {
@@ -153,6 +188,9 @@ func Validate(ctx context.Context, catalog *Catalog, docs []Document) (*Graph, e
 	return graph, nil
 }
 
+// Compile validates docs and builds all resources in dependency order.
+//
+// Compile constructs components but does not call Open on runtime adapters.
 func Compile(ctx context.Context, catalog *Catalog, docs []Document) (*Compiled, error) {
 	graph, err := Validate(ctx, catalog, docs)
 	if err != nil {
@@ -170,8 +208,14 @@ func Compile(ctx context.Context, catalog *Catalog, docs []Document) (*Compiled,
 		if flow, ok := obj.(Flow); ok {
 			compiled.Flows = append(compiled.Flows, flow)
 		}
+		if flow, ok := obj.(ObservationFlow); ok {
+			compiled.ObservationFlows = append(compiled.ObservationFlows, flow)
+		}
 	}
 	sort.Slice(compiled.Flows, func(i, j int) bool { return compiled.Flows[i].Name < compiled.Flows[j].Name })
+	sort.Slice(compiled.ObservationFlows, func(i, j int) bool {
+		return compiled.ObservationFlows[i].Name < compiled.ObservationFlows[j].Name
+	})
 	return compiled, nil
 }
 

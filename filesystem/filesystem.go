@@ -38,6 +38,10 @@ type Config struct {
 	Deduplicate  bool
 }
 
+// ResourceSpec is the declarative spec shared by FilesystemEmitter and FilesystemReceiver.
+//
+// Format accepts "ndjson" for newline-delimited structured CloudEvents or
+// "files" for one CloudEvent JSON document per file.
 type ResourceSpec struct {
 	Path         string `yaml:"path" json:"path"`
 	Format       string `yaml:"format,omitempty" json:"format,omitempty"`
@@ -46,6 +50,7 @@ type ResourceSpec struct {
 	Deduplicate  bool   `yaml:"deduplicate,omitempty" json:"deduplicate,omitempty"`
 }
 
+// Register adds FilesystemEmitter and FilesystemReceiver resource definitions.
 func Register(catalog *resource.Catalog) error {
 	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
 		GVK: resource.GVK("FilesystemEmitter"),
