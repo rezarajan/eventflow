@@ -1,4 +1,4 @@
-// Package redpanda exposes Redpanda Eventflow adapters.
+// Package redpanda implements OpenLineage admission and quarantine gateway Redpanda transport.
 package redpanda
 
 import (
@@ -59,7 +59,7 @@ func Register(catalog *resource.Catalog) error {
 		Build: func(_ context.Context, _ resource.BuildContext, spec EmitterSpec) (any, error) {
 			return NewEmitter(EmitterConfig{Brokers: spec.Brokers, Topic: spec.Topic, TopicMode: spec.TopicMode, BatchSize: spec.BatchSize}), nil
 		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityRedpandaEmitter},
 	}); err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func Register(catalog *resource.Catalog) error {
 		Build: func(_ context.Context, _ resource.BuildContext, spec ReceiverSpec) (any, error) {
 			return NewReceiver(ReceiverConfig{Brokers: spec.Brokers, Topic: spec.Topic, GroupID: spec.GroupID, StartOffset: spec.StartOffset}), nil
 		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityReceiver},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityRedpandaReceiver},
 	})
 }
 
@@ -110,23 +110,24 @@ func (e *Emitter) Emit(ctx context.Context, event eventflow.Event) error {
 }
 
 // EmitBatch writes a batch of events.
-func (e *Emitter) EmitBatch(ctx context.Context, events []eventflow.Event) error {
-	return e.inner.PublishBatch(ctx, events)
-}
-
 // Close closes the writer.
 func (e *Emitter) Close(ctx context.Context) error { return e.inner.Close(ctx) }
 
 // Receiver consumes CloudEvents from Redpanda.
 type Receiver struct {
 	inner     *consumer.Source
+	principal string
 	buffer    []eventflow.Event
 	ackBuffer []eventflow.ReceivedEvent
 }
 
 // NewReceiver constructs a Redpanda receiver.
 func NewReceiver(config ReceiverConfig) *Receiver {
-	return &Receiver{inner: consumer.New(config)}
+	principal := "kafka://" + config.GroupID
+	if config.GroupID == "" {
+		principal = "kafka://eventflow"
+	}
+	return &Receiver{inner: consumer.New(config), principal: principal}
 }
 
 // Name returns the adapter name.
@@ -136,7 +137,11 @@ func (*Receiver) Name() string { return "redpanda" }
 func (r *Receiver) Open(ctx context.Context) error { return r.inner.Open(ctx) }
 
 // Receive reads one event, committing only after the underlying source accepts it.
-func (r *Receiver) Receive(ctx context.Context) (eventflow.Event, error) {
+func (r *Receiver) Receive(ctx context.Context) (eventflow.ReceivedEvent, error) {
+	return r.ReceiveAck(ctx)
+}
+
+func (r *Receiver) receiveEvent(ctx context.Context) (eventflow.Event, error) {
 	if len(r.buffer) == 0 {
 		events, err := r.ReceiveBatch(ctx, 1)
 		if err != nil {
@@ -165,9 +170,10 @@ func (r *Receiver) ReceiveAck(ctx context.Context) (eventflow.ReceivedEvent, err
 		for _, event := range events {
 			commit := event.Commit
 			r.ackBuffer = append(r.ackBuffer, eventflow.ReceivedEvent{
-				Event: event.Event,
-				Ack:   commit,
-				Nack:  func(context.Context) error { return nil },
+				Event:     event.Event,
+				Principal: r.principal,
+				Ack:       commit,
+				Nack:      func(context.Context) error { return nil },
 			})
 		}
 	}

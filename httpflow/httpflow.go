@@ -1,4 +1,4 @@
-// Package httpflow provides HTTP Eventflow emitters and receivers.
+// Package httpflow implements OpenLineage admission and quarantine gateway HTTP transport.
 package httpflow
 
 import (
@@ -7,97 +7,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	sdk "github.com/cloudevents/sdk-go/v2"
 
 	eventflow "github.com/rezarajan/eventflow"
-	"github.com/rezarajan/eventflow/cloudevent"
-	"github.com/rezarajan/eventflow/observability/metrics"
+	"github.com/rezarajan/eventflow/admission"
 	"github.com/rezarajan/eventflow/resource"
 )
 
-// Mode controls HTTP event representation.
-type Mode string
-
-const (
-	// ModeStructuredCloudEvents posts structured CloudEvents JSON.
-	ModeStructuredCloudEvents Mode = "structured-cloudevents"
-	// ModeBinaryCloudEvents posts CloudEvents binary-mode HTTP requests.
-	ModeBinaryCloudEvents Mode = "binary-cloudevents"
-	// ModeNativeOpenLineage posts raw OpenLineage JSON.
-	ModeNativeOpenLineage Mode = "native-openlineage"
-)
-
-// EmitterConfig defines HTTP emitter settings.
-type EmitterConfig struct {
-	URL               string
-	Mode              Mode
-	Client            *http.Client
-	RetryMax          int
-	RetryBackoff      time.Duration
-	IdempotencyHeader string
+type HTTPReceiverSpec struct {
+	Address           string   `yaml:"address,omitempty" json:"address,omitempty"`
+	Path              string   `yaml:"path,omitempty" json:"path,omitempty"`
+	MaxBody           int64    `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
+	PrincipalHeader   string   `yaml:"principalHeader,omitempty" json:"principalHeader,omitempty"`
+	TrustedProxyCIDRs []string `yaml:"trustedProxyCidrs,omitempty" json:"trustedProxyCidrs,omitempty"`
+	ReadTimeout       string   `yaml:"readTimeout,omitempty" json:"readTimeout,omitempty"`
+	WriteTimeout      string   `yaml:"writeTimeout,omitempty" json:"writeTimeout,omitempty"`
+	IdleTimeout       string   `yaml:"idleTimeout,omitempty" json:"idleTimeout,omitempty"`
 }
 
-// HTTPEmitterSpec is the declarative spec for HTTPEmitter.
 type HTTPEmitterSpec struct {
 	URL               string `yaml:"url" json:"url"`
-	Mode              string `yaml:"mode,omitempty" json:"mode,omitempty"`
-	RetryMax          int    `yaml:"retryMax,omitempty" json:"retryMax,omitempty"`
-	RetryBackoff      string `yaml:"retryBackoff,omitempty" json:"retryBackoff,omitempty"`
+	Timeout           string `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	IdempotencyHeader string `yaml:"idempotencyHeader,omitempty" json:"idempotencyHeader,omitempty"`
 }
 
-// HTTPReceiverSpec configures the HTTP handler component.
-//
-// The current HTTPReceiver resource is an http.Handler integration point, not a
-// pull-based eventflow.Receiver. It is therefore not a valid EventFlow receiverRef.
-type HTTPReceiverSpec struct {
-	Address      string `yaml:"address,omitempty" json:"address,omitempty"`
-	Path         string `yaml:"path,omitempty" json:"path,omitempty"`
-	MaxBody      int64  `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
-	ReadTimeout  string `yaml:"readTimeout,omitempty" json:"readTimeout,omitempty"`
-	WriteTimeout string `yaml:"writeTimeout,omitempty" json:"writeTimeout,omitempty"`
-	IdleTimeout  string `yaml:"idleTimeout,omitempty" json:"idleTimeout,omitempty"`
-}
-
-// Register adds HTTPEmitter and HTTPReceiver resource definitions.
 func Register(catalog *resource.Catalog) error {
-	if err := resource.Register(catalog, resource.Definition[HTTPEmitterSpec]{
-		GVK: resource.GVK("HTTPEmitter"),
-		Default: func(spec *HTTPEmitterSpec) error {
-			if spec.Mode == "" {
-				spec.Mode = string(ModeStructuredCloudEvents)
-			}
-			return nil
-		},
-		Validate: func(_ context.Context, spec HTTPEmitterSpec) error {
-			if spec.URL == "" {
-				return fmt.Errorf("url is required")
-			}
-			if _, err := parseBackoff(spec.RetryBackoff); err != nil {
-				return err
-			}
-			switch Mode(spec.Mode) {
-			case ModeStructuredCloudEvents, ModeBinaryCloudEvents, ModeNativeOpenLineage:
-				return nil
-			default:
-				return fmt.Errorf("unsupported mode %q", spec.Mode)
-			}
-		},
-		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPEmitterSpec) (any, error) {
-			backoff, err := parseBackoff(spec.RetryBackoff)
-			if err != nil {
-				return nil, err
-			}
-			return NewEmitter(EmitterConfig{URL: spec.URL, Mode: Mode(spec.Mode), RetryMax: spec.RetryMax, RetryBackoff: backoff, IdempotencyHeader: spec.IdempotencyHeader}), nil
-		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter},
-	}); err != nil {
-		return err
-	}
-	return resource.Register(catalog, resource.Definition[HTTPReceiverSpec]{
+	if err := resource.Register(catalog, resource.Definition[HTTPReceiverSpec]{
 		GVK: resource.GVK("HTTPReceiver"),
 		Default: func(spec *HTTPReceiverSpec) error {
 			if spec.Address == "" {
@@ -108,159 +48,72 @@ func Register(catalog *resource.Catalog) error {
 			}
 			return nil
 		},
-		Validate: func(_ context.Context, spec HTTPReceiverSpec) error {
-			for field, value := range map[string]string{"readTimeout": spec.ReadTimeout, "writeTimeout": spec.WriteTimeout, "idleTimeout": spec.IdleTimeout} {
-				if value == "" {
-					continue
-				}
-				if _, err := time.ParseDuration(value); err != nil {
-					return fmt.Errorf("%s: %w", field, err)
-				}
-			}
-			return nil
-		},
+		Validate: validateReceiverSpec,
 		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPReceiverSpec) (any, error) {
 			readTimeout, _ := time.ParseDuration(spec.ReadTimeout)
 			writeTimeout, _ := time.ParseDuration(spec.WriteTimeout)
 			idleTimeout, _ := time.ParseDuration(spec.IdleTimeout)
-			return NewReceiver(ReceiverConfig{
-				Address:      spec.Address,
-				Path:         spec.Path,
-				MaxBody:      spec.MaxBody,
-				ReadTimeout:  readTimeout,
-				WriteTimeout: writeTimeout,
-				IdleTimeout:  idleTimeout,
-			}), nil
+			return NewReceiver(ReceiverConfig{Address: spec.Address, Path: spec.Path, MaxBody: spec.MaxBody, PrincipalHeader: spec.PrincipalHeader, TrustedProxyCIDRs: spec.TrustedProxyCIDRs, ReadTimeout: readTimeout, WriteTimeout: writeTimeout, IdleTimeout: idleTimeout}), nil
 		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityReceiver},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityHTTPReceiver},
+	}); err != nil {
+		return err
+	}
+	return resource.Register(catalog, resource.Definition[HTTPEmitterSpec]{
+		GVK: resource.GVK("HTTPEmitter"),
+		Validate: func(_ context.Context, spec HTTPEmitterSpec) error {
+			if spec.URL == "" {
+				return fmt.Errorf("url is required")
+			}
+			if spec.Timeout != "" {
+				if _, err := time.ParseDuration(spec.Timeout); err != nil {
+					return fmt.Errorf("timeout: %w", err)
+				}
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPEmitterSpec) (any, error) {
+			timeout := 30 * time.Second
+			if spec.Timeout != "" {
+				timeout, _ = time.ParseDuration(spec.Timeout)
+			}
+			return &Emitter{url: spec.URL, client: &http.Client{Timeout: timeout}, idempotencyHeader: spec.IdempotencyHeader}, nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityHTTPEmitter},
 	})
 }
 
-func parseBackoff(value string) (time.Duration, error) {
-	if value == "" {
-		return 0, nil
+func validateReceiverSpec(_ context.Context, spec HTTPReceiverSpec) error {
+	for field, value := range map[string]string{"readTimeout": spec.ReadTimeout, "writeTimeout": spec.WriteTimeout, "idleTimeout": spec.IdleTimeout} {
+		if value == "" {
+			continue
+		}
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
+		}
 	}
-	duration, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("retryBackoff: %w", err)
-	}
-	return duration, nil
-}
-
-// Emitter posts events to HTTP endpoints.
-type Emitter struct {
-	config EmitterConfig
-	client *http.Client
-}
-
-// NewEmitter constructs an HTTP emitter.
-func NewEmitter(config EmitterConfig) *Emitter { return &Emitter{config: config} }
-
-// Name returns the adapter name.
-func (*Emitter) Name() string { return "http" }
-
-// Open validates configuration.
-func (e *Emitter) Open(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if e.config.URL == "" {
-		return fmt.Errorf("http emitter URL is required")
-	}
-	e.client = e.config.Client
-	if e.client == nil {
-		e.client = &http.Client{Timeout: 30 * time.Second}
+	for _, cidr := range spec.TrustedProxyCIDRs {
+		if cidr == "*" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("trustedProxyCidrs: %w", err)
+		}
 	}
 	return nil
 }
 
-// Emit posts one event.
-func (e *Emitter) Emit(ctx context.Context, event eventflow.Event) error {
-	if err := event.Validate(); err != nil {
-		return eventflow.ValidationError("validate cloudevent", err)
-	}
-	body, contentType, err := e.body(event)
-	if err != nil {
-		return err
-	}
-	attempts := e.config.RetryMax + 1
-	if attempts <= 0 {
-		attempts = 1
-	}
-	var lastErr error
-	for attempt := 0; attempt < attempts; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.config.URL, bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("content-type", contentType)
-		if e.config.Mode == ModeBinaryCloudEvents {
-			cloudevent.AddBinaryHTTPHeaders(req.Header, event)
-		}
-		if e.config.IdempotencyHeader != "" {
-			req.Header.Set(e.config.IdempotencyHeader, event.ID())
-		}
-		resp, err := e.client.Do(req)
-		if err == nil && resp != nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				return nil
-			}
-			err = fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
-			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
-				return err
-			}
-		}
-		lastErr = err
-		if attempt+1 < attempts && e.config.RetryBackoff > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(e.config.RetryBackoff):
-			}
-		}
-	}
-	return lastErr
-}
-
-// Close releases resources.
-func (*Emitter) Close(ctx context.Context) error { return ctx.Err() }
-
-func (e *Emitter) body(event eventflow.Event) ([]byte, string, error) {
-	switch e.config.Mode {
-	case "", ModeStructuredCloudEvents, ModeBinaryCloudEvents:
-		body, err := json.Marshal(event)
-		contentType := "application/cloudevents+json"
-		if e.config.Mode == ModeBinaryCloudEvents {
-			body = event.Data()
-			contentType = event.DataContentType()
-			if contentType == "" {
-				contentType = "application/json"
-			}
-		}
-		return body, contentType, err
-	case ModeNativeOpenLineage:
-		return event.Data(), "application/json", nil
-	default:
-		return nil, "", eventflow.UnsupportedError("http emitter mode", fmt.Errorf("%s", e.config.Mode))
-	}
-}
-
-// ReceiverConfig defines an HTTP receiver.
 type ReceiverConfig struct {
-	Handler      eventflow.EventHandler
-	Validator    eventflow.Validator
-	Mode         eventflow.ValidationMode
-	Address      string
-	Path         string
-	MaxBody      int64
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
+	Address           string
+	Path              string
+	MaxBody           int64
+	PrincipalHeader   string
+	TrustedProxyCIDRs []string
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
 }
 
-// Receiver is an http.Handler that validates and dispatches received events.
 type Receiver struct {
 	config ReceiverConfig
 	server *http.Server
@@ -268,21 +121,15 @@ type Receiver struct {
 }
 
 type httpReceived struct {
-	event eventflow.Event
-	done  chan error
+	event     eventflow.Event
+	raw       []byte
+	principal string
+	done      chan error
 }
 
-// NewReceiver constructs an HTTP receiver handler.
 func NewReceiver(config ReceiverConfig) *Receiver { return &Receiver{config: config} }
 
-// Name returns the adapter name.
-func (*Receiver) Name() string { return "http" }
-
-// Open starts the HTTP ingress server when configured as an EventFlow receiver.
 func (r *Receiver) Open(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if r.config.Address == "" {
 		r.config.Address = ":8080"
 	}
@@ -294,69 +141,35 @@ func (r *Receiver) Open(ctx context.Context) error {
 	mux.Handle(r.config.Path, r)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	mux.Handle("/metrics", metrics.Handler())
-	r.server = &http.Server{
-		Addr:         r.config.Address,
-		Handler:      mux,
-		ReadTimeout:  r.config.ReadTimeout,
-		WriteTimeout: r.config.WriteTimeout,
-		IdleTimeout:  r.config.IdleTimeout,
-	}
-	go func() {
-		if err := r.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// The next Receive call will observe context cancellation in normal shutdown paths.
-		}
-	}()
-	return nil
+	r.server = &http.Server{Addr: r.config.Address, Handler: mux, ReadTimeout: r.config.ReadTimeout, WriteTimeout: r.config.WriteTimeout, IdleTimeout: r.config.IdleTimeout}
+	go func() { _ = r.server.ListenAndServe() }()
+	return ctx.Err()
 }
 
-// Receive blocks until one HTTP request has decoded to an event.
-func (r *Receiver) Receive(ctx context.Context) (eventflow.Event, error) {
-	received, err := r.ReceiveAck(ctx)
-	if err != nil {
-		return eventflow.Event{}, err
-	}
-	return received.Event, received.Ack(ctx)
-}
-
-// ReceiveAck returns one decoded request with response callbacks.
-func (r *Receiver) ReceiveAck(ctx context.Context) (eventflow.ReceivedEvent, error) {
-	if r.events == nil {
-		return eventflow.ReceivedEvent{}, fmt.Errorf("http receiver is not open")
-	}
+func (r *Receiver) Receive(ctx context.Context) (eventflow.ReceivedEvent, error) {
 	select {
 	case <-ctx.Done():
 		return eventflow.ReceivedEvent{}, ctx.Err()
 	case received := <-r.events:
 		return eventflow.ReceivedEvent{
-			Event: received.event,
-			Ack: func(context.Context) error {
-				received.done <- nil
-				return nil
-			},
-			Nack: func(context.Context) error {
-				received.done <- fmt.Errorf("event was not accepted")
-				return nil
-			},
+			Event:     received.event,
+			Raw:       received.raw,
+			Principal: received.principal,
+			Ack:       func(context.Context) error { received.done <- nil; return nil },
+			Nack:      func(context.Context) error { received.done <- fmt.Errorf("event rejected"); return nil },
 		}, nil
 	}
 }
 
-// Close gracefully stops the HTTP ingress server.
 func (r *Receiver) Close(ctx context.Context) error {
 	if r.server == nil {
-		return ctx.Err()
+		return nil
 	}
 	return r.server.Shutdown(ctx)
 }
 
-// ServeHTTP accepts structured CloudEvents, binary CloudEvents, and raw OpenLineage JSON.
 func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.URL.Path == "/healthz" || req.URL.Path == "/readyz" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.config.Path != "" && req.URL.Path != r.config.Path {
+	if req.URL.Path != r.config.Path {
 		http.NotFound(w, req)
 		return
 	}
@@ -364,110 +177,123 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	event, err := r.decode(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if r.config.Validator != nil {
-		mode := r.config.Mode
-		if mode == "" {
-			mode = eventflow.ValidationStrict
-		}
-		if err := r.config.Validator.Validate(req.Context(), event, mode); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-	if r.config.Handler == nil {
-		if r.events == nil {
-			http.Error(w, "event handler is required", http.StatusInternalServerError)
-			return
-		}
-		done := make(chan error, 1)
-		select {
-		case <-req.Context().Done():
-			http.Error(w, req.Context().Err().Error(), http.StatusServiceUnavailable)
-			return
-		case r.events <- httpReceived{event: event, done: done}:
-		}
-		select {
-		case <-req.Context().Done():
-			http.Error(w, req.Context().Err().Error(), http.StatusServiceUnavailable)
-			return
-		case err := <-done:
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-	}
-	if err := r.config.Handler.Handle(req.Context(), event); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-}
-
-func (r *Receiver) decode(req *http.Request) (eventflow.Event, error) {
 	maxBody := r.config.MaxBody
 	if maxBody <= 0 {
 		maxBody = 1 << 20
 	}
-	req.Body = http.MaxBytesReader(nil, req.Body, maxBody)
-	contentType := req.Header.Get("content-type")
-	if req.Header.Get("ce-type") != "" {
-		return cloudevent.FromBinaryHTTPRequest(req)
-	}
-	body, err := io.ReadAll(req.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxBody))
 	if err != nil {
-		return eventflow.Event{}, err
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if contentType == "application/cloudevents+json" {
+	event, err := eventFromRequest(req, body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	done := make(chan error, 1)
+	select {
+	case <-req.Context().Done():
+		http.Error(w, req.Context().Err().Error(), http.StatusServiceUnavailable)
+	case r.events <- httpReceived{event: event, raw: body, principal: r.principal(req), done: done}:
+		err := <-done
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func eventFromRequest(req *http.Request, body []byte) (eventflow.Event, error) {
+	if strings.Contains(req.Header.Get("content-type"), "application/cloudevents+json") {
 		var event eventflow.Event
 		if err := json.Unmarshal(body, &event); err != nil {
 			return eventflow.Event{}, err
 		}
-		if err := event.Validate(); err != nil {
-			return eventflow.Event{}, eventflow.ValidationError("validate cloudevent", err)
-		}
 		return event, nil
 	}
+	var ol admission.OpenLineageEvent
+	if err := json.Unmarshal(body, &ol); err != nil {
+		return eventflow.Event{}, err
+	}
 	event := sdk.NewEvent(sdk.VersionV1)
-	event.SetType("io.openlineage.run-event.v1")
+	event.SetType(admission.CloudEventType)
 	event.SetSource("urn:eventflow:http")
-	var lineage struct {
-		EventTime time.Time `json:"eventTime"`
-		Run       struct {
-			RunID string `json:"runId"`
-		} `json:"run"`
-		Job struct {
-			Namespace string `json:"namespace"`
-			Name      string `json:"name"`
-		} `json:"job"`
-	}
-	if err := json.Unmarshal(body, &lineage); err == nil {
-		if lineage.Run.RunID != "" {
-			event.SetID(lineage.Run.RunID)
-		}
-		if !lineage.EventTime.IsZero() {
-			event.SetTime(lineage.EventTime)
-		}
-		if lineage.Job.Namespace != "" && lineage.Job.Name != "" {
-			event.SetSubject(lineage.Job.Namespace + "/" + lineage.Job.Name)
-		}
-	}
-	if event.ID() == "" {
+	if ol.Run.RunID != "" {
+		event.SetID(ol.Run.RunID)
+	} else {
 		event.SetID(fmt.Sprintf("http-%d", time.Now().UnixNano()))
 	}
-	event.SetDataContentType("application/json")
-	if err := event.SetData("application/json", body); err != nil {
-		return eventflow.Event{}, err
-	}
-	if err := event.Validate(); err != nil {
-		return eventflow.Event{}, err
-	}
+	event.SetSubject(ol.Job.Namespace + "/" + ol.Job.Name)
+	_ = event.SetData(sdk.ApplicationJSON, body)
 	return event, nil
+}
+
+// TestEventFromBytes wraps raw OpenLineage JSON exactly as HTTP ingress does.
+func TestEventFromBytes(body []byte) (eventflow.Event, error) {
+	req, _ := http.NewRequest(http.MethodPost, "/events", bytes.NewReader(body))
+	req.Header.Set("content-type", "application/json")
+	return eventFromRequest(req, body)
+}
+
+func (r *Receiver) principal(req *http.Request) string {
+	if req.TLS != nil && len(req.TLS.PeerCertificates) > 0 {
+		return req.TLS.PeerCertificates[0].Subject.String()
+	}
+	if r.config.PrincipalHeader == "" || !r.trustedProxy(req.RemoteAddr) {
+		return ""
+	}
+	return req.Header.Get(r.config.PrincipalHeader)
+}
+
+func (r *Receiver) trustedProxy(remote string) bool {
+	if len(r.config.TrustedProxyCIDRs) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	ip := net.ParseIP(host)
+	for _, cidr := range r.config.TrustedProxyCIDRs {
+		if cidr == "*" {
+			return true
+		}
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+type Emitter struct {
+	url               string
+	client            *http.Client
+	idempotencyHeader string
+}
+
+func (e *Emitter) Open(context.Context) error  { return nil }
+func (e *Emitter) Close(context.Context) error { return nil }
+
+func (e *Emitter) Emit(ctx context.Context, event eventflow.Event) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.url, bytes.NewReader(event.Data()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("content-type", "application/json")
+	if e.idempotencyHeader != "" {
+		req.Header.Set(e.idempotencyHeader, event.ID())
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("http status %d", resp.StatusCode)
+	}
+	return nil
 }

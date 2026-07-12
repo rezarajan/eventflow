@@ -10,8 +10,6 @@ import (
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/segmentio/kafka-go"
-
-	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
 // ReceivedMessage is a decoded CloudEvent with its source commit callback.
@@ -43,11 +41,6 @@ func NewWithDependencies(config Config, factory ReaderFactory) *Source {
 // Name returns the event source name.
 func (s *Source) Name() string {
 	return Name
-}
-
-// Dataset returns the stable Redpanda topic dataset consumed by this source.
-func (s *Source) Dataset() lineage.Dataset {
-	return lineage.RedpandaDataset(s.config.Brokers, s.config.Topic)
 }
 
 // Open validates configuration and initializes the underlying reader.

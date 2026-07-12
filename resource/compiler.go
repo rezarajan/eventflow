@@ -4,18 +4,13 @@ import (
 	"context"
 	"fmt"
 	"sort"
-
-	eventflow "github.com/rezarajan/eventflow"
-	"github.com/rezarajan/eventflow/journal"
 )
 
-// Graph is the validated dependency graph for a set of resources.
 type Graph struct {
 	nodes map[ResourceKey]*node
 	order []ResourceKey
 }
 
-// Nodes returns all resource keys in stable display order.
 func (g *Graph) Nodes() []ResourceKey {
 	if g == nil {
 		return nil
@@ -35,130 +30,26 @@ type node struct {
 	dependencies []Reference
 }
 
-// BuildContext gives resource builders access to already-built dependencies.
-//
-// Resource definitions should use the typed helpers such as Emitter, Receiver,
-// Observer, and ObservationMapper when they need a specific capability.
 type BuildContext struct {
-	graph    *Graph
-	objects  map[ResourceKey]any
-	compiled *Compiled
-	current  ResourceKey
+	objects map[ResourceKey]any
+	current ResourceKey
 }
 
-// ResourceName returns the metadata.name of the resource currently being built.
 func (b BuildContext) ResourceName() string { return b.current.Name }
 
-// Get returns the built object for ref.
-//
-// Get is useful for adapter-specific dependency types. Prefer the typed helper
-// methods when the dependency is an Eventflow port.
 func (b BuildContext) Get(ref Reference) (any, error) {
-	key := ref.Key()
-	obj, ok := b.objects[key]
+	obj, ok := b.objects[ref.Key()]
 	if !ok {
-		return nil, typed(ErrMissingReference, key.String(), fmt.Errorf("resource is not built"))
+		return nil, typed(ErrMissingReference, ref.Key().String(), fmt.Errorf("resource is not built"))
 	}
 	return obj, nil
 }
 
-// Emitter returns the built resource referenced by ref as an event emitter.
-func (b BuildContext) Emitter(ref Reference) (eventflowEmitter, error) {
-	obj, err := b.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	emitter, ok := obj.(eventflowEmitter)
-	if !ok {
-		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not emit events"))
-	}
-	return emitter, nil
-}
-
-// Receiver returns the built resource referenced by ref as an event receiver.
-func (b BuildContext) Receiver(ref Reference) (eventflowReceiver, error) {
-	obj, err := b.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	receiver, ok := obj.(eventflowReceiver)
-	if !ok {
-		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not receive events"))
-	}
-	return receiver, nil
-}
-
-// Observer returns the built resource referenced by ref as an activity observer.
-func (b BuildContext) Observer(ref Reference) (eventflowObserver, error) {
-	obj, err := b.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	observer, ok := obj.(eventflowObserver)
-	if !ok {
-		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not observe activity"))
-	}
-	return observer, nil
-}
-
-// ObservationMapper returns the built resource referenced by ref as an observation mapper.
-func (b BuildContext) ObservationMapper(ref Reference) (eventflowObservationMapper, error) {
-	obj, err := b.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	mapper, ok := obj.(eventflowObservationMapper)
-	if !ok {
-		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not map observations"))
-	}
-	return mapper, nil
-}
-
-// Journal returns the built resource referenced by ref as a durable journal.
-func (b BuildContext) Journal(ref Reference) (journal.Journal, error) {
-	obj, err := b.Get(ref)
-	if err != nil {
-		return nil, err
-	}
-	j, ok := obj.(journal.Journal)
-	if !ok {
-		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not journal events"))
-	}
-	return j, nil
-}
-
-type eventflowEmitter interface {
-	Open(context.Context) error
-	Emit(context.Context, eventflow.Event) error
-	Close(context.Context) error
-}
-
-type eventflowReceiver interface {
-	Open(context.Context) error
-	Receive(context.Context) (eventflow.Event, error)
-	Close(context.Context) error
-}
-
-type eventflowObserver interface {
-	Open(context.Context) error
-	Observe(context.Context) (eventflow.Observation, error)
-	Close(context.Context) error
-}
-
-type eventflowObservationMapper interface {
-	MapObservation(context.Context, eventflow.Observation) (eventflow.Event, error)
-}
-
-// Compiled contains the objects and runnable flows produced by Compile.
 type Compiled struct {
-	Objects          map[ResourceKey]any
-	Flows            []Flow
-	ObservationFlows []ObservationFlow
+	Objects map[ResourceKey]any
+	Flows   []Flow
 }
 
-// Validate decodes resources, checks semantics, resolves references, and builds a graph.
-//
-// Validate does not call resource Build functions and does not open adapters.
 func Validate(ctx context.Context, catalog *Catalog, docs []Document) (*Graph, error) {
 	graph := &Graph{nodes: map[ResourceKey]*node{}}
 	for _, doc := range docs {
@@ -188,13 +79,12 @@ func Validate(ctx context.Context, catalog *Catalog, docs []Document) (*Graph, e
 	}
 	for key, node := range graph.nodes {
 		for _, ref := range node.dependencies {
-			refKey := ref.Key()
-			dep, ok := graph.nodes[refKey]
+			dep, ok := graph.nodes[ref.Key()]
 			if !ok {
-				return nil, typed(ErrMissingReference, key.String(), fmt.Errorf("missing %s", refKey.String()))
+				return nil, typed(ErrMissingReference, key.String(), fmt.Errorf("missing %s", ref.Key().String()))
 			}
 			if ref.Capability != "" && !hasCapability(dep.def.capabilities(), ref.Capability) {
-				return nil, typed(ErrCapabilityMismatch, key.String(), fmt.Errorf("%s does not declare %s", refKey.String(), ref.Capability))
+				return nil, typed(ErrCapabilityMismatch, key.String(), fmt.Errorf("%s does not declare %s", ref.Key().String(), ref.Capability))
 			}
 		}
 	}
@@ -206,16 +96,13 @@ func Validate(ctx context.Context, catalog *Catalog, docs []Document) (*Graph, e
 	return graph, nil
 }
 
-// Compile validates docs and builds all resources in dependency order.
-//
-// Compile constructs components but does not call Open on runtime adapters.
 func Compile(ctx context.Context, catalog *Catalog, docs []Document) (*Compiled, error) {
 	graph, err := Validate(ctx, catalog, docs)
 	if err != nil {
 		return nil, err
 	}
 	compiled := &Compiled{Objects: map[ResourceKey]any{}}
-	bctx := BuildContext{graph: graph, objects: compiled.Objects, compiled: compiled}
+	bctx := BuildContext{objects: compiled.Objects}
 	for _, key := range graph.order {
 		n := graph.nodes[key]
 		bctx.current = key
@@ -225,25 +112,10 @@ func Compile(ctx context.Context, catalog *Catalog, docs []Document) (*Compiled,
 		}
 		compiled.Objects[key] = obj
 		if flow, ok := obj.(Flow); ok {
-			if flow.Name == "" {
-				flow.Name = key.Name
-			}
-			if flow.Dispatch.Flow == "" {
-				flow.Dispatch.Flow = flow.Name
-			}
 			compiled.Flows = append(compiled.Flows, flow)
-		}
-		if flow, ok := obj.(ObservationFlow); ok {
-			if flow.Name == "" {
-				flow.Name = key.Name
-			}
-			compiled.ObservationFlows = append(compiled.ObservationFlows, flow)
 		}
 	}
 	sort.Slice(compiled.Flows, func(i, j int) bool { return compiled.Flows[i].Name < compiled.Flows[j].Name })
-	sort.Slice(compiled.ObservationFlows, func(i, j int) bool {
-		return compiled.ObservationFlows[i].Name < compiled.ObservationFlows[j].Name
-	})
 	return compiled, nil
 }
 

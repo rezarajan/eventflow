@@ -9,11 +9,11 @@ spec:
   startOffset: first
 ---
 apiVersion: eventflow.dev/v1alpha1
-kind: SQLiteJournal
+kind: QuarantineStore
 metadata:
-  name: worker-journal
+  name: worker-quarantine
 spec:
-  path: var/eventflow/openlineage/worker.sqlite
+  path: var/eventflow/worker-quarantine.sqlite
 ---
 apiVersion: eventflow.dev/v1alpha1
 kind: HTTPEmitter
@@ -21,50 +21,54 @@ metadata:
   name: marquez
 spec:
   url: http://localhost:5000/api/v1/lineage
-  mode: native-openlineage
+  timeout: 15s
   idempotencyHeader: X-Eventflow-Event-Id
 ---
 apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemEmitter
-metadata:
-  name: quarantine
-spec:
-  path: var/eventflow/openlineage/worker-quarantine.ndjson
-  format: ndjson
----
-apiVersion: eventflow.dev/v1alpha1
-kind: EventContract
+kind: OpenLineageContract
 metadata:
   name: openlineage-run-event
 spec:
+  version: v1
   type: io.openlineage.run-event.v1
-  dataContentType: application/json
-  dataSchema: examples/openlineage-redpanda-marquez/schemas/openlineage-run-event.json
+  allowedSchemaVersions: ["2-0-2"]
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: OpenLineagePolicy
+metadata:
+  name: governed-lineage
+spec:
+  version: v1
+  allowedSchemaVersions: ["2-0-2"]
+  allowedProducers:
+    - github.com/rezarajan/eventflow/examples/openlineage
+  principalJobNamespaces:
+    kafka://eventflow-openlineage-worker:
+      - eventflow.example
+  principalDatasetNamespaces:
+    kafka://eventflow-openlineage-worker:
+      - warehouse
+  allowedDatasetUriSchemes: ["s3", "file"]
+  allowCustomFacets: true
 ---
 apiVersion: eventflow.dev/v1alpha1
 kind: EventFlow
 metadata:
   name: lineage-worker
 spec:
+  mode: kafka-to-marquez
   receiverRef:
     kind: RedpandaReceiver
     name: lineage-topic
-  contractRefs:
-    - kind: EventContract
-      name: openlineage-run-event
-  journalRef:
-    kind: SQLiteJournal
-    name: worker-journal
-  emitterRefs:
-    - kind: HTTPEmitter
-      name: marquez
-  invalidEmitterRef:
-    kind: FilesystemEmitter
-    name: quarantine
-  dispatch:
-    maxAttempts: 5
-    initialRetryDelay: 1s
-    maxRetryDelay: 30s
-    workerConcurrency: 2
-    dispatchTimeout: 15s
-    shutdownDrainTimeout: 20s
+  contractRef:
+    kind: OpenLineageContract
+    name: openlineage-run-event
+  policyRef:
+    kind: OpenLineagePolicy
+    name: governed-lineage
+  emitterRef:
+    kind: HTTPEmitter
+    name: marquez
+  quarantineRef:
+    kind: QuarantineStore
+    name: worker-quarantine

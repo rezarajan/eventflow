@@ -1,4 +1,4 @@
-// Package cloudevent provides CloudEvents codecs and helpers for Eventflow.
+// Package cloudevent provides CloudEvents helpers for an OpenLineage admission and quarantine gateway for shared data-platform infrastructure.
 package cloudevent
 
 import (

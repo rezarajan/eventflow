@@ -1,40 +1,17 @@
-# OpenLineage Redpanda Marquez Example
+# OpenLineage Redpanda Example
 
-This example demonstrates:
+This example demonstrates Eventflow as an OpenLineage admission and quarantine gateway:
 
-1. valid OpenLineage HTTP input reaching Redpanda and Marquez;
-2. invalid input being rejected or quarantined;
-3. Marquez outage causing retained journal state;
-4. automatic retry or operator replay after Marquez returns.
+1. authorized valid OpenLineage is accepted and published to Redpanda;
+2. an unauthorized job namespace is rejected with `EF1202_JOB_NAMESPACE_NOT_ALLOWED`;
+3. malformed OpenLineage is rejected with `EF1101_OPENLINEAGE_SCHEMA_INVALID`;
+4. rejected events are retained in quarantine;
+5. an operator validates and replays a corrected record.
 
-```bash
-just up-all
-just topic openlineage.events.v1
-go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/ingress.yaml
-go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/worker.yaml
-```
-
-Post a valid event:
+Run:
 
 ```bash
-curl -fsS -X POST http://localhost:8080/events \
-  -H 'content-type: application/json' \
-  --data @examples/openlineage-redpanda-marquez/valid-run-event.json
+just demo
 ```
 
-Post an invalid event:
-
-```bash
-curl -i -X POST http://localhost:8080/events \
-  -H 'content-type: application/json' \
-  --data @examples/openlineage-redpanda-marquez/invalid-run-event.json
-```
-
-Replay failed Marquez deliveries:
-
-```bash
-go run ./cmd/eventflow replay \
-  --config examples/openlineage-redpanda-marquez/worker.yaml \
-  --destination HTTPEmitter/marquez \
-  --state FAILED
-```
+The Kafka-to-Marquez worker configuration in `worker.yaml` shows the downstream delivery mode where Kafka remains the durable source of truth and Eventflow commits offsets after Marquez delivery.

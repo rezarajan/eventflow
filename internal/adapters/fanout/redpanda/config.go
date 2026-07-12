@@ -1,4 +1,4 @@
-// Package redpanda publishes CloudEvents to a Kafka-compatible Redpanda broker.
+// Package redpanda publishes Kafka-compatible CloudEvents for an OpenLineage admission and quarantine gateway for shared data-platform infrastructure.
 package redpanda
 
 import (

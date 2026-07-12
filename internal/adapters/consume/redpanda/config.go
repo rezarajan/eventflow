@@ -1,4 +1,4 @@
-// Package redpanda consumes CloudEvents from a Kafka-compatible Redpanda broker.
+// Package redpanda consumes Kafka-compatible CloudEvents for an OpenLineage admission and quarantine gateway for shared data-platform infrastructure.
 package redpanda
 
 import (

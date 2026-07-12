@@ -1,0 +1,15 @@
+tests:
+  - name: valid-authorized
+    event: examples/openlineage-redpanda-marquez/valid-run-event.json
+    principal: spiffe://example/dagster
+    expectOutcome: ACCEPT
+  - name: unauthorized-job-namespace
+    event: examples/openlineage-redpanda-marquez/unauthorized-job-namespace.json
+    principal: spiffe://example/dagster
+    expectOutcome: REJECT
+    expectReason: EF1202_JOB_NAMESPACE_NOT_ALLOWED
+  - name: malformed-openlineage
+    event: examples/openlineage-redpanda-marquez/invalid-run-event.json
+    principal: spiffe://example/dagster
+    expectOutcome: REJECT
+    expectReason: EF1101_OPENLINEAGE_SCHEMA_INVALID

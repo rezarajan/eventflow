@@ -3,19 +3,21 @@ kind: HTTPReceiver
 metadata:
   name: lineage-http
 spec:
-  address: ":8080"
+  address: ":18081"
   path: /events
   maxBody: 1048576
+  principalHeader: X-Eventflow-Principal
+  trustedProxyCidrs: ["*"]
   readTimeout: 5s
   writeTimeout: 30s
   idleTimeout: 60s
 ---
 apiVersion: eventflow.dev/v1alpha1
-kind: SQLiteJournal
+kind: QuarantineStore
 metadata:
-  name: gateway-journal
+  name: quarantine
 spec:
-  path: var/eventflow/openlineage/ingress.sqlite
+  path: var/eventflow/quarantine.sqlite
 ---
 apiVersion: eventflow.dev/v1alpha1
 kind: RedpandaEmitter
@@ -26,47 +28,53 @@ spec:
   topic: openlineage.events.v1
 ---
 apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemEmitter
-metadata:
-  name: quarantine
-spec:
-  path: var/eventflow/openlineage/quarantine.ndjson
-  format: ndjson
----
-apiVersion: eventflow.dev/v1alpha1
-kind: EventContract
+kind: OpenLineageContract
 metadata:
   name: openlineage-run-event
 spec:
+  version: v1
   type: io.openlineage.run-event.v1
-  dataContentType: application/json
-  dataSchema: examples/openlineage-redpanda-marquez/schemas/openlineage-run-event.json
+  allowedSchemaVersions: ["2-0-2"]
+  maxEventBytes: 1048576
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: OpenLineagePolicy
+metadata:
+  name: governed-lineage
+spec:
+  version: v1
+  allowedSchemaVersions: ["2-0-2"]
+  allowedProducers:
+    - github.com/rezarajan/eventflow/examples/openlineage
+  principalJobNamespaces:
+    spiffe://example/dagster:
+      - eventflow.example
+  principalDatasetNamespaces:
+    spiffe://example/dagster:
+      - warehouse
+  allowedDatasetUriSchemes: ["s3", "file"]
+  allowCustomFacets: true
+  maxEventBytes: 1048576
 ---
 apiVersion: eventflow.dev/v1alpha1
 kind: EventFlow
 metadata:
   name: lineage-ingress
 spec:
+  mode: http-to-kafka
   receiverRef:
     kind: HTTPReceiver
     name: lineage-http
-  contractRefs:
-    - kind: EventContract
-      name: openlineage-run-event
-  journalRef:
-    kind: SQLiteJournal
-    name: gateway-journal
-  emitterRefs:
-    - kind: RedpandaEmitter
-      name: lineage-events
-  invalidEmitterRef:
-    kind: FilesystemEmitter
+  contractRef:
+    kind: OpenLineageContract
+    name: openlineage-run-event
+  policyRef:
+    kind: OpenLineagePolicy
+    name: governed-lineage
+  emitterRef:
+    kind: RedpandaEmitter
+    name: lineage-events
+  quarantineRef:
+    kind: QuarantineStore
     name: quarantine
-  invalidPolicy: acceptAndQuarantine
-  dispatch:
-    maxAttempts: 5
-    initialRetryDelay: 1s
-    maxRetryDelay: 30s
-    workerConcurrency: 2
-    dispatchTimeout: 15s
-    shutdownDrainTimeout: 20s
+  brokerUnavailablePolicy: reject

@@ -1,74 +1,33 @@
-// Package eventflow defines the public SDK ports and runtime primitives.
-//
-// The SDK is transport-neutral: adapters implement small capability interfaces,
-// validation is explicit, and callers own dependency construction.
+// Package eventflow implements an OpenLineage admission and quarantine gateway for shared data-platform infrastructure.
 package eventflow
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
-	"github.com/rezarajan/eventflow/observability/metrics"
 )
 
-// Event is the canonical in-memory Eventflow event representation.
-//
-// It is intentionally the CloudEvents SDK event type so adapters can preserve
-// CloudEvents metadata without conversion loss.
+// Event is the CloudEvents representation admitted by Eventflow.
 type Event = cloudevents.Event
 
-// Kind names a registered event kind/type.
-type Kind string
+var ErrValidation = errors.New("eventflow validation failed")
 
-// ValidationMode controls how contract and payload validation are applied.
-type ValidationMode string
-
-const (
-	// ValidationStrict rejects unknown event types and all schema/envelope failures.
-	ValidationStrict ValidationMode = "strict"
-	// ValidationCompatible keeps strict envelope validation while allowing compatible contract evolution.
-	ValidationCompatible ValidationMode = "compatible"
-	// ValidationPermissive reports producer-correctable issues where possible but lets runtime dispatch continue.
-	ValidationPermissive ValidationMode = "permissive"
-	// ValidationDisabled bypasses contract and payload validation.
-	ValidationDisabled ValidationMode = "disabled"
-)
-
-var (
-	// ErrValidation marks validation failures that producers or contract authors can fix.
-	ErrValidation = errors.New("eventflow validation failed")
-	// ErrNotFound marks unresolved contracts, references, or missing transport resources.
-	ErrNotFound = errors.New("eventflow resource not found")
-	// ErrUnsupported marks unsupported codecs, adapters, or validation modes.
-	ErrUnsupported = errors.New("eventflow unsupported capability")
-)
-
-// TypedError carries a stable kind for errors returned by SDK components.
 type TypedError struct {
 	Kind error
 	Op   string
 	Err  error
 }
 
-// Error returns a human-readable error.
 func (e TypedError) Error() string {
 	if e.Op == "" {
 		return e.Err.Error()
 	}
 	return e.Op + ": " + e.Err.Error()
 }
-
-// Unwrap returns the underlying error.
-func (e TypedError) Unwrap() error { return e.Err }
-
-// Is reports whether this error matches the requested stable kind.
+func (e TypedError) Unwrap() error        { return e.Err }
 func (e TypedError) Is(target error) bool { return target == e.Kind }
 
-// ValidationError wraps a concrete validation failure.
 func ValidationError(op string, err error) error {
 	if err == nil {
 		return nil
@@ -76,248 +35,70 @@ func ValidationError(op string, err error) error {
 	return TypedError{Kind: ErrValidation, Op: op, Err: err}
 }
 
-// UnsupportedError wraps an unsupported capability failure.
-func UnsupportedError(op string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return TypedError{Kind: ErrUnsupported, Op: op, Err: err}
+// Outcome is the stable admission result.
+type Outcome string
+
+const (
+	OutcomeAccept     Outcome = "ACCEPT"
+	OutcomeReject     Outcome = "REJECT"
+	OutcomeQuarantine Outcome = "QUARANTINE"
+)
+
+const (
+	ReasonCloudEventInvalid             = "EF1001_CLOUDEVENT_INVALID"
+	ReasonEventTypeUnsupported          = "EF1002_EVENT_TYPE_UNSUPPORTED"
+	ReasonOpenLineageSchemaInvalid      = "EF1101_OPENLINEAGE_SCHEMA_INVALID"
+	ReasonOpenLineageVersionUnsupported = "EF1102_OPENLINEAGE_VERSION_UNSUPPORTED"
+	ReasonProducerNotAllowed            = "EF1201_PRODUCER_NOT_ALLOWED"
+	ReasonJobNamespaceNotAllowed        = "EF1202_JOB_NAMESPACE_NOT_ALLOWED"
+	ReasonDatasetNamespaceNotAllowed    = "EF1203_DATASET_NAMESPACE_NOT_ALLOWED"
+	ReasonRequiredFacetMissing          = "EF1301_REQUIRED_FACET_MISSING"
+	ReasonFacetNotAllowed               = "EF1302_FACET_NOT_ALLOWED"
+	ReasonEventTooLarge                 = "EF1303_EVENT_TOO_LARGE"
+	ReasonRateLimitExceeded             = "EF1401_RATE_LIMIT_EXCEEDED"
+	ReasonBrokerUnavailable             = "EF1501_BROKER_UNAVAILABLE"
+)
+
+// Decision is the stable external admission decision contract.
+type Decision struct {
+	Outcome       Outcome `json:"outcome"`
+	ReasonCode    string  `json:"reasonCode,omitempty"`
+	Message       string  `json:"message,omitempty"`
+	Field         string  `json:"field,omitempty"`
+	Principal     string  `json:"principal,omitempty"`
+	PolicyName    string  `json:"policyName,omitempty"`
+	PolicyVersion string  `json:"policyVersion,omitempty"`
 }
 
-// Emitter sends one event to a transport or storage target.
-//
-// Implementations must be safe for sequential use after Open. Concurrent use is
-// adapter-specific and documented by each adapter.
+// Accepted returns an accept decision.
+func Accepted(principal string, policyName string, policyVersion string) Decision {
+	return Decision{Outcome: OutcomeAccept, Principal: principal, PolicyName: policyName, PolicyVersion: policyVersion}
+}
+
+// Rejected returns a reject decision.
+func Rejected(code string, message string, field string, principal string, policyName string, policyVersion string) Decision {
+	return Decision{Outcome: OutcomeReject, ReasonCode: code, Message: message, Field: field, Principal: principal, PolicyName: policyName, PolicyVersion: policyVersion}
+}
+
+// Emitter publishes an admitted event to a destination.
 type Emitter interface {
-	Open(ctx context.Context) error
-	Emit(ctx context.Context, event Event) error
-	Close(ctx context.Context) error
+	Open(context.Context) error
+	Emit(context.Context, Event) error
+	Close(context.Context) error
 }
 
-// Named is implemented by adapters that expose a stable adapter name.
-type Named interface {
-	Name() string
-}
-
-// BatchEmitter emits event batches atomically when the underlying transport supports it.
-type BatchEmitter interface {
-	Emitter
-	EmitBatch(ctx context.Context, events []Event) error
-}
-
-// Receiver reads explicit events from a transport or storage source.
+// Receiver receives events from a source.
 type Receiver interface {
-	Open(ctx context.Context) error
-	Receive(ctx context.Context) (Event, error)
-	Close(ctx context.Context) error
+	Open(context.Context) error
+	Receive(context.Context) (ReceivedEvent, error)
+	Close(context.Context) error
 }
 
-// ReceivedEvent is an event with source acknowledgement callbacks.
+// ReceivedEvent contains decoded event data and source acknowledgement hooks.
 type ReceivedEvent struct {
-	Event Event
-	Ack   func(context.Context) error
-	Nack  func(context.Context) error
-}
-
-// AckReceiver reads events whose source acknowledgement must be controlled by the runtime.
-type AckReceiver interface {
-	Open(ctx context.Context) error
-	ReceiveAck(ctx context.Context) (ReceivedEvent, error)
-	Close(ctx context.Context) error
-}
-
-// BatchReceiver reads bounded event batches.
-type BatchReceiver interface {
-	Receiver
-	ReceiveBatch(ctx context.Context, maxEvents int) ([]Event, error)
-}
-
-// Observer turns platform activity, such as object storage notifications, into observations.
-type Observer interface {
-	Open(ctx context.Context) error
-	Observe(ctx context.Context) (Observation, error)
-	Close(ctx context.Context) error
-}
-
-// Observation describes inferred platform activity.
-type Observation struct {
-	Source     string
-	Subject    string
-	Attributes map[string]string
-	Event      *Event
-	Time       time.Time
-}
-
-// EventHandler handles one normalized event.
-type EventHandler interface {
-	Handle(ctx context.Context, event Event) error
-}
-
-// ObservationHandler handles one platform observation.
-type ObservationHandler interface {
-	HandleObservation(ctx context.Context, observation Observation) error
-}
-
-// ObservationMapper converts platform activity into a normalized Eventflow event.
-type ObservationMapper interface {
-	MapObservation(ctx context.Context, observation Observation) (Event, error)
-}
-
-// Validator validates an event in a chosen validation mode.
-type Validator interface {
-	Validate(ctx context.Context, event Event, mode ValidationMode) error
-}
-
-// Codec encodes and decodes event representations.
-type Codec interface {
-	Encode(ctx context.Context, writer io.Writer, event Event) error
-	Decode(ctx context.Context, reader io.Reader) (Event, error)
-}
-
-// Closer releases resources.
-type Closer interface {
-	Close(ctx context.Context) error
-}
-
-// Runtime composes receiver, validator, and handler without transport-specific logic.
-type Runtime struct {
-	Receiver       Receiver
-	Validator      Validator
-	Handler        EventHandler
-	InvalidHandler EventHandler
-	AcceptInvalid  bool
-	Mode           ValidationMode
-}
-
-// Run receives events until EOF, cancellation, or handler failure.
-func (r Runtime) Run(ctx context.Context) error {
-	if r.Receiver == nil {
-		return fmt.Errorf("receiver is required")
-	}
-	if r.Handler == nil {
-		return fmt.Errorf("handler is required")
-	}
-	mode := r.Mode
-	if mode == "" {
-		mode = ValidationStrict
-	}
-	if err := r.Receiver.Open(ctx); err != nil {
-		return err
-	}
-	defer r.Receiver.Close(ctx)
-	for {
-		received, err := receiveOne(ctx, r.Receiver)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
-		}
-		evt := received.Event
-		metrics.Inc("eventflow_events_received_total", nil)
-		if r.Validator != nil {
-			if err := r.Validator.Validate(ctx, evt, mode); err != nil {
-				metrics.Inc("eventflow_events_rejected_total", map[string]string{"result": "validation"})
-				if r.InvalidHandler != nil {
-					if emitErr := r.InvalidHandler.Handle(ctx, evt); emitErr != nil {
-						return emitErr
-					}
-					metrics.Inc("eventflow_events_quarantined_total", nil)
-					if r.AcceptInvalid && received.Ack != nil {
-						if ackErr := received.Ack(ctx); ackErr != nil {
-							return ackErr
-						}
-					}
-					if r.AcceptInvalid {
-						continue
-					}
-				}
-				if received.Nack != nil {
-					_ = received.Nack(ctx)
-				}
-				return err
-			}
-		}
-		if err := r.Handler.Handle(ctx, evt); err != nil {
-			if received.Nack != nil {
-				_ = received.Nack(ctx)
-			}
-			return err
-		}
-		metrics.Inc("eventflow_events_accepted_total", nil)
-		if received.Ack != nil {
-			if err := received.Ack(ctx); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func receiveOne(ctx context.Context, receiver Receiver) (ReceivedEvent, error) {
-	if ackReceiver, ok := receiver.(AckReceiver); ok {
-		return ackReceiver.ReceiveAck(ctx)
-	}
-	event, err := receiver.Receive(ctx)
-	if err != nil {
-		return ReceivedEvent{}, err
-	}
-	return ReceivedEvent{Event: event}, nil
-}
-
-// ObservationRuntime composes an observer, mapper, validator, and handler.
-type ObservationRuntime struct {
-	Observer       Observer
-	Mapper         ObservationMapper
-	Validator      Validator
-	Handler        EventHandler
-	InvalidHandler EventHandler
-	Mode           ValidationMode
-}
-
-// Run observes platform activity until EOF, cancellation, or handler failure.
-func (r ObservationRuntime) Run(ctx context.Context) error {
-	if r.Observer == nil {
-		return fmt.Errorf("observer is required")
-	}
-	if r.Mapper == nil {
-		return fmt.Errorf("observation mapper is required")
-	}
-	if r.Handler == nil {
-		return fmt.Errorf("handler is required")
-	}
-	mode := r.Mode
-	if mode == "" {
-		mode = ValidationStrict
-	}
-	if err := r.Observer.Open(ctx); err != nil {
-		return err
-	}
-	defer r.Observer.Close(ctx)
-	for {
-		observation, err := r.Observer.Observe(ctx)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
-		}
-		event, err := r.Mapper.MapObservation(ctx, observation)
-		if err != nil {
-			return err
-		}
-		if r.Validator != nil {
-			if err := r.Validator.Validate(ctx, event, mode); err != nil {
-				if r.InvalidHandler != nil {
-					if emitErr := r.InvalidHandler.Handle(ctx, event); emitErr != nil {
-						return emitErr
-					}
-					continue
-				}
-				return err
-			}
-		}
-		if err := r.Handler.Handle(ctx, event); err != nil {
-			return err
-		}
-	}
+	Event     Event
+	Raw       []byte
+	Principal string
+	Ack       func(context.Context) error
+	Nack      func(context.Context) error
 }

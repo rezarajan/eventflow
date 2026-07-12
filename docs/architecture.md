@@ -1,40 +1,36 @@
 # Architecture
 
-Eventflow is a schema-enforcing CloudEvents gateway. It owns the boundary between producers and shared event infrastructure.
+Eventflow is an OpenLineage admission and quarantine gateway.
 
 ```text
 producer
-  -> receiver
-  -> decode
-  -> CloudEvents + payload contract validation
-  -> deterministic metadata normalization
-  -> durable journal
-  -> dispatcher
-  -> emitter
+  -> HTTP or Kafka receiver
+  -> authenticated principal extraction
+  -> CloudEvents validation
+  -> OpenLineage shape and version validation
+  -> typed organization policy
+  -> accepted destination or quarantine
 ```
-
-## Components
-
-- Receivers accept HTTP, Kafka/Redpanda or filesystem input.
-- Contracts validate CloudEvents envelope fields and optional JSON Schema payloads.
-- The SQLite journal stores accepted events before acknowledgement.
-- The dispatcher reads pending journal rows and delivers each record to each destination with bounded retry.
-- Quarantine emitters receive invalid events when explicitly configured.
-- Observability exposes health, readiness, metrics and structured operational fields.
 
 ## Trust Boundary
 
-Eventflow is the governed admission boundary. Producers are not trusted to publish directly into shared infrastructure unless the platform team explicitly allows it. Eventflow validates what producers supplied; it does not infer business semantics.
+Eventflow sits at the governed boundary before shared Kafka-compatible or metadata infrastructure. It does not generate lineage semantics; Dagster, Spark, dbt, and custom producers remain responsible for accurate OpenLineage jobs, runs, datasets, and facets.
+
+## Components
+
+- `OpenLineageContract` defines the supported CloudEvents type and OpenLineage schema versions.
+- `OpenLineagePolicy` defines identity, namespace, facet, size, naming, tenant, environment, and rate-limit rules.
+- `HTTPReceiver` accepts OpenLineage over HTTP and trusts identity only from verified transport or trusted proxy configuration.
+- `RedpandaEmitter` publishes accepted events to an existing topic.
+- `RedpandaReceiver` consumes from an existing topic for Kafka-to-Marquez delivery.
+- `HTTPEmitter` delivers accepted events to Marquez-compatible HTTP endpoints.
+- `QuarantineStore` persists rejected events and admission decisions for operator inspection and replay.
+- `SQLiteSpool` is opt-in single-instance local spooling for standalone or explicit broker-outage handling.
 
 ## Deployment Modes
 
-- Gateway: receiver plus journal append, with optional local dispatcher.
-- Delivery worker: journal plus dispatcher and destinations.
-- Replay job: journal query plus selected destination.
-- Validate job: manifest validation only.
+- HTTP-to-Kafka: broker acknowledgement is the durability boundary.
+- Kafka-to-Marquez: Kafka offsets and retention are the durability boundary.
+- Standalone spool: SQLite is local single-instance durability.
 
-SQLite mode is single-writer/single-instance. Do not run multiple gateway replicas against one SQLite volume.
-
-## Non-Goals
-
-Eventflow is not a workflow engine, stream processor, service mesh, Dapr replacement, schema registry, data catalog, Kubernetes operator, broker administrator or infrastructure provisioner.
+Eventflow does not provision topics, buckets, schemas, identities, or Kubernetes control planes.
