@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventflow-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eventflow-gateway
+  template:
+    metadata:
+      labels:
+        app: eventflow-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: eventflow
+          image: ghcr.io/rezarajan/eventflow:latest
+          args: ["run", "--config", "/etc/eventflow/resources.yaml"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/eventflow
+              readOnly: true
+            - name: journal
+              mountPath: /var/lib/eventflow
+      volumes:
+        - name: config
+          configMap:
+            name: eventflow-config
+        - name: journal
+          persistentVolumeClaim:
+            claimName: eventflow-journal

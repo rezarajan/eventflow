@@ -72,7 +72,7 @@ spec:
   type: invoice.posted.v1
   sourceRegex: '^urn:billing:'
   dataContentType: application/json
-  payloadSchema: ./contracts/invoice-posted.v1.schema.json
+  dataSchema: ./contracts/invoice-posted.v1.schema.json
   requiredExtensions:
     - correlationid
 ```
@@ -100,7 +100,7 @@ spec:
   emitterRefs:
     - kind: FilesystemEmitter
       name: accepted-events
-  invalidEventRef:
+  invalidEmitterRef:
     kind: FilesystemEmitter
     name: rejected-events
 ```

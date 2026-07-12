@@ -14,6 +14,7 @@ import (
 
 	eventflow "github.com/rezarajan/eventflow"
 	"github.com/rezarajan/eventflow/cloudevent"
+	"github.com/rezarajan/eventflow/observability/metrics"
 	"github.com/rezarajan/eventflow/resource"
 )
 
@@ -53,7 +54,12 @@ type HTTPEmitterSpec struct {
 // The current HTTPReceiver resource is an http.Handler integration point, not a
 // pull-based eventflow.Receiver. It is therefore not a valid EventFlow receiverRef.
 type HTTPReceiverSpec struct {
-	MaxBody int64 `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
+	Address      string `yaml:"address,omitempty" json:"address,omitempty"`
+	Path         string `yaml:"path,omitempty" json:"path,omitempty"`
+	MaxBody      int64  `yaml:"maxBody,omitempty" json:"maxBody,omitempty"`
+	ReadTimeout  string `yaml:"readTimeout,omitempty" json:"readTimeout,omitempty"`
+	WriteTimeout string `yaml:"writeTimeout,omitempty" json:"writeTimeout,omitempty"`
+	IdleTimeout  string `yaml:"idleTimeout,omitempty" json:"idleTimeout,omitempty"`
 }
 
 // Register adds HTTPEmitter and HTTPReceiver resource definitions.
@@ -93,10 +99,40 @@ func Register(catalog *resource.Catalog) error {
 	}
 	return resource.Register(catalog, resource.Definition[HTTPReceiverSpec]{
 		GVK: resource.GVK("HTTPReceiver"),
-		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPReceiverSpec) (any, error) {
-			return NewReceiver(ReceiverConfig{MaxBody: spec.MaxBody}), nil
+		Default: func(spec *HTTPReceiverSpec) error {
+			if spec.Address == "" {
+				spec.Address = ":8080"
+			}
+			if spec.Path == "" {
+				spec.Path = "/events"
+			}
+			return nil
 		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent},
+		Validate: func(_ context.Context, spec HTTPReceiverSpec) error {
+			for field, value := range map[string]string{"readTimeout": spec.ReadTimeout, "writeTimeout": spec.WriteTimeout, "idleTimeout": spec.IdleTimeout} {
+				if value == "" {
+					continue
+				}
+				if _, err := time.ParseDuration(value); err != nil {
+					return fmt.Errorf("%s: %w", field, err)
+				}
+			}
+			return nil
+		},
+		Build: func(_ context.Context, _ resource.BuildContext, spec HTTPReceiverSpec) (any, error) {
+			readTimeout, _ := time.ParseDuration(spec.ReadTimeout)
+			writeTimeout, _ := time.ParseDuration(spec.WriteTimeout)
+			idleTimeout, _ := time.ParseDuration(spec.IdleTimeout)
+			return NewReceiver(ReceiverConfig{
+				Address:      spec.Address,
+				Path:         spec.Path,
+				MaxBody:      spec.MaxBody,
+				ReadTimeout:  readTimeout,
+				WriteTimeout: writeTimeout,
+				IdleTimeout:  idleTimeout,
+			}), nil
+		},
+		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityReceiver},
 	})
 }
 
@@ -213,24 +249,115 @@ func (e *Emitter) body(event eventflow.Event) ([]byte, string, error) {
 
 // ReceiverConfig defines an HTTP receiver.
 type ReceiverConfig struct {
-	Handler   eventflow.EventHandler
-	Validator eventflow.Validator
-	Mode      eventflow.ValidationMode
-	MaxBody   int64
+	Handler      eventflow.EventHandler
+	Validator    eventflow.Validator
+	Mode         eventflow.ValidationMode
+	Address      string
+	Path         string
+	MaxBody      int64
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
 }
 
 // Receiver is an http.Handler that validates and dispatches received events.
 type Receiver struct {
 	config ReceiverConfig
+	server *http.Server
+	events chan httpReceived
+}
+
+type httpReceived struct {
+	event eventflow.Event
+	done  chan error
 }
 
 // NewReceiver constructs an HTTP receiver handler.
 func NewReceiver(config ReceiverConfig) *Receiver { return &Receiver{config: config} }
 
+// Name returns the adapter name.
+func (*Receiver) Name() string { return "http" }
+
+// Open starts the HTTP ingress server when configured as an EventFlow receiver.
+func (r *Receiver) Open(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.config.Address == "" {
+		r.config.Address = ":8080"
+	}
+	if r.config.Path == "" {
+		r.config.Path = "/events"
+	}
+	r.events = make(chan httpReceived)
+	mux := http.NewServeMux()
+	mux.Handle(r.config.Path, r)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.Handle("/metrics", metrics.Handler())
+	r.server = &http.Server{
+		Addr:         r.config.Address,
+		Handler:      mux,
+		ReadTimeout:  r.config.ReadTimeout,
+		WriteTimeout: r.config.WriteTimeout,
+		IdleTimeout:  r.config.IdleTimeout,
+	}
+	go func() {
+		if err := r.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			// The next Receive call will observe context cancellation in normal shutdown paths.
+		}
+	}()
+	return nil
+}
+
+// Receive blocks until one HTTP request has decoded to an event.
+func (r *Receiver) Receive(ctx context.Context) (eventflow.Event, error) {
+	received, err := r.ReceiveAck(ctx)
+	if err != nil {
+		return eventflow.Event{}, err
+	}
+	return received.Event, received.Ack(ctx)
+}
+
+// ReceiveAck returns one decoded request with response callbacks.
+func (r *Receiver) ReceiveAck(ctx context.Context) (eventflow.ReceivedEvent, error) {
+	if r.events == nil {
+		return eventflow.ReceivedEvent{}, fmt.Errorf("http receiver is not open")
+	}
+	select {
+	case <-ctx.Done():
+		return eventflow.ReceivedEvent{}, ctx.Err()
+	case received := <-r.events:
+		return eventflow.ReceivedEvent{
+			Event: received.event,
+			Ack: func(context.Context) error {
+				received.done <- nil
+				return nil
+			},
+			Nack: func(context.Context) error {
+				received.done <- fmt.Errorf("event was not accepted")
+				return nil
+			},
+		}, nil
+	}
+}
+
+// Close gracefully stops the HTTP ingress server.
+func (r *Receiver) Close(ctx context.Context) error {
+	if r.server == nil {
+		return ctx.Err()
+	}
+	return r.server.Shutdown(ctx)
+}
+
 // ServeHTTP accepts structured CloudEvents, binary CloudEvents, and raw OpenLineage JSON.
 func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/healthz" || req.URL.Path == "/readyz" {
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.config.Path != "" && req.URL.Path != r.config.Path {
+		http.NotFound(w, req)
 		return
 	}
 	if req.Method != http.MethodPost {
@@ -253,8 +380,29 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	if r.config.Handler == nil {
-		http.Error(w, "event handler is required", http.StatusInternalServerError)
-		return
+		if r.events == nil {
+			http.Error(w, "event handler is required", http.StatusInternalServerError)
+			return
+		}
+		done := make(chan error, 1)
+		select {
+		case <-req.Context().Done():
+			http.Error(w, req.Context().Err().Error(), http.StatusServiceUnavailable)
+			return
+		case r.events <- httpReceived{event: event, done: done}:
+		}
+		select {
+		case <-req.Context().Done():
+			http.Error(w, req.Context().Err().Error(), http.StatusServiceUnavailable)
+			return
+		case err := <-done:
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
 	}
 	if err := r.config.Handler.Handle(req.Context(), event); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -290,6 +438,30 @@ func (r *Receiver) decode(req *http.Request) (eventflow.Event, error) {
 	event := sdk.NewEvent(sdk.VersionV1)
 	event.SetType("io.openlineage.run-event.v1")
 	event.SetSource("urn:eventflow:http")
+	var lineage struct {
+		EventTime time.Time `json:"eventTime"`
+		Run       struct {
+			RunID string `json:"runId"`
+		} `json:"run"`
+		Job struct {
+			Namespace string `json:"namespace"`
+			Name      string `json:"name"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(body, &lineage); err == nil {
+		if lineage.Run.RunID != "" {
+			event.SetID(lineage.Run.RunID)
+		}
+		if !lineage.EventTime.IsZero() {
+			event.SetTime(lineage.EventTime)
+		}
+		if lineage.Job.Namespace != "" && lineage.Job.Name != "" {
+			event.SetSubject(lineage.Job.Namespace + "/" + lineage.Job.Name)
+		}
+	}
+	if event.ID() == "" {
+		event.SetID(fmt.Sprintf("http-%d", time.Now().UnixNano()))
+	}
 	event.SetDataContentType("application/json")
 	if err := event.SetData("application/json", body); err != nil {
 		return eventflow.Event{}, err

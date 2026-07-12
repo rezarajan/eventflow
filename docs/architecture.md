@@ -1,35 +1,40 @@
 # Architecture
 
-Eventflow is organized as a public Go SDK plus a declarative resource runtime.
-The SDK owns ports, validation, codecs, lineage helpers, importable adapters,
-and resource compilation. Commands load resource YAML, compile it, and run the
-resulting flow.
+Eventflow is a schema-enforcing CloudEvents gateway. It owns the boundary between producers and shared event infrastructure.
 
-```mermaid
-flowchart LR
-  App[Application] --> SDK[eventflow SDK]
-  SDK --> Ports[Emitter / Receiver / Observer / Mapper / Validator / Codec]
-  Ports --> FS[filesystem]
-  Ports --> HTTP[httpflow]
-  Ports --> RP[redpanda]
-  Ports --> S3[s3]
-  Ports --> Duck[duckdb]
-  SDK --> Resource[eventflow.dev/v1alpha1 resources]
-  SDK --> CE[cloudevent]
-  SDK --> OL[lineage]
+```text
+producer
+  -> receiver
+  -> decode
+  -> CloudEvents + payload contract validation
+  -> deterministic metadata normalization
+  -> durable journal
+  -> dispatcher
+  -> emitter
 ```
 
-```mermaid
-flowchart TD
-  A[Load YAML resources] --> B[Validate resource envelopes and specs]
-  B --> C[Build dependency graph]
-  C --> D[Check references and capabilities]
-  D --> E[Compile components and flows]
-  E --> F[Run EventFlow or ObservationFlow]
-  F --> G[Validate CloudEvents contracts]
-  G --> H[Emit accepted events]
-```
+## Components
 
-The SDK does not provision infrastructure, own credentials, or implement a
-Datascape control plane. Redpanda topics, S3 buckets, DuckDB files, and Marquez
-instances are attached resources.
+- Receivers accept HTTP, Kafka/Redpanda or filesystem input.
+- Contracts validate CloudEvents envelope fields and optional JSON Schema payloads.
+- The SQLite journal stores accepted events before acknowledgement.
+- The dispatcher reads pending journal rows and delivers each record to each destination with bounded retry.
+- Quarantine emitters receive invalid events when explicitly configured.
+- Observability exposes health, readiness, metrics and structured operational fields.
+
+## Trust Boundary
+
+Eventflow is the governed admission boundary. Producers are not trusted to publish directly into shared infrastructure unless the platform team explicitly allows it. Eventflow validates what producers supplied; it does not infer business semantics.
+
+## Deployment Modes
+
+- Gateway: receiver plus journal append, with optional local dispatcher.
+- Delivery worker: journal plus dispatcher and destinations.
+- Replay job: journal query plus selected destination.
+- Validate job: manifest validation only.
+
+SQLite mode is single-writer/single-instance. Do not run multiple gateway replicas against one SQLite volume.
+
+## Non-Goals
+
+Eventflow is not a workflow engine, stream processor, service mesh, Dapr replacement, schema registry, data catalog, Kubernetes operator, broker administrator or infrastructure provisioner.

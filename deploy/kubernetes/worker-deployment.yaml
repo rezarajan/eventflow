@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventflow-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eventflow-worker
+  template:
+    metadata:
+      labels:
+        app: eventflow-worker
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: eventflow
+          image: ghcr.io/rezarajan/eventflow:latest
+          args: ["run", "--config", "/etc/eventflow/resources.yaml"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/eventflow
+              readOnly: true
+            - name: journal
+              mountPath: /var/lib/eventflow
+      volumes:
+        - name: config
+          configMap:
+            name: eventflow-config
+        - name: journal
+          persistentVolumeClaim:
+            claimName: eventflow-journal

@@ -1,14 +1,22 @@
 # Adapters
 
-Public adapters are importable packages:
+Supported core adapters:
 
-| Package | Capability |
+| Resource | Purpose |
 | --- | --- |
-| `filesystem` | Structured CloudEvents NDJSON, one-event-per-file, stdin/stdout, atomic file writes, commit markers, deduplication hooks. |
-| `httpflow` | HTTP emitter and receiver for structured CloudEvents, binary CloudEvents, and native OpenLineage endpoint posts. |
-| `redpanda` | Redpanda/Kafka emitter and receiver using existing `kafka-go` internals. |
-| `s3` | S3-compatible emitter, local notification source, notification observer, and object-created mapper. |
-| `duckdb` | Eventflow-owned append-only raw event table. |
+| `HTTPReceiver` | HTTP CloudEvents/OpenLineage ingress |
+| `HTTPEmitter` | HTTP CloudEvents or native OpenLineage delivery |
+| `RedpandaReceiver` | Kafka-compatible CloudEvents source |
+| `RedpandaEmitter` | Kafka-compatible CloudEvents destination |
+| `FilesystemReceiver` | Development, fixtures and incident recovery |
+| `FilesystemEmitter` | Development output and quarantine |
+| `SQLiteJournal` | Single-node durable gateway journal |
 
-Adapters do not create brokers, buckets, credentials, identities, or governance
-resources.
+Optional narrow adapters:
+
+| Resource | Scope |
+| --- | --- |
+| `S3NotificationObserver` and mapper | One observation-to-event example for object-created notifications |
+| `DuckDBEmitter` | Analytical/raw export only, not transactional delivery coordination |
+
+Eventflow connects to existing Kafka/Redpanda topics. It does not create topics, provision buckets or administer brokers.

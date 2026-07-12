@@ -1,19 +1,30 @@
-# Migration Notes
+# Migration
 
-Eventflow now uses `eventflow.dev/v1alpha1` resources as the only runtime
-configuration model. The old registry-driven commands and generator runtime
-paths have been removed.
+## Product Boundary
 
-Use these replacements:
+Eventflow is now a schema-enforcing CloudEvents gateway. Documentation and examples no longer describe it as a general declarative runtime.
 
-| Previous idea | Current model |
-| --- | --- |
-| Registry event entry | `EventContract` resource. |
-| Registry channel/adapter config | Explicit adapter resources such as `RedpandaEmitter` or `FilesystemReceiver`. |
-| Registry-driven flow wiring | `EventFlow` for CloudEvents sources. |
-| Platform notification ingestion | `ObservationFlow` with an `Observer` and `ObservationMapper`. |
-| Generator command/runtime | Example or test tooling outside the SDK runtime path. |
+## Resource Changes
 
-Resource validation is explicit and startup-bound. Backing infrastructure such
-as topics, buckets, queues, databases, and credentials is still managed outside
-Eventflow.
+- Add `journalRef` to production `EventFlow` resources.
+- Prefer `invalidEmitterRef`; `invalidEventRef` is a deprecated compatibility alias.
+- Prefer `dataSchema`; `payloadSchema` is a deprecated compatibility alias.
+- Add `SQLiteJournal` for durable accepted-event and delivery state.
+- `DuckDBReceiver` is no longer registered. `DuckDBEmitter` remains optional analytical/raw export.
+
+## Command Changes
+
+Use the primary command:
+
+```text
+eventflow validate
+eventflow inspect
+eventflow run
+eventflow replay
+```
+
+Standalone `eventflow-emit`, `eventflow-receive`, `eventflow-relay` and `eventflow-lineage-replay` are deprecated compatibility utilities.
+
+## Delivery Semantics
+
+Acknowledgement now happens after validation and durable journal append for journaled flows. Kafka offsets are committed by the runtime only after handler success.

@@ -211,6 +211,31 @@ spec:
 	}
 }
 
+func TestContractValidatesJSONSchemaPayload(t *testing.T) {
+	dir := t.TempDir()
+	schema := filepath.Join(dir, "payload.schema.json")
+	if err := os.WriteFile(schema, []byte(`{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	validator := contractValidator{contracts: []EventContractSpec{{Type: "example.created", DataSchema: schema}}}
+	event := sdk.NewEvent(sdk.VersionV1)
+	event.SetID("1")
+	event.SetType("example.created")
+	event.SetSource("test")
+	if err := event.SetData("application/json", map[string]any{"missing": "id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(context.Background(), event, eventflow.ValidationStrict); !errors.Is(err, eventflow.ErrValidation) {
+		t.Fatalf("Validate() error = %v, want validation error", err)
+	}
+	if err := event.SetData("application/json", map[string]any{"id": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validator.Validate(context.Background(), event, eventflow.ValidationStrict); err != nil {
+		t.Fatalf("Validate() valid event error = %v", err)
+	}
+}
+
 func TestEventFlowRejectsObserverRef(t *testing.T) {
 	docs := docsFromYAML(t, `apiVersion: eventflow.dev/v1alpha1
 kind: EventFlow

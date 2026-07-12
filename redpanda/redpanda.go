@@ -119,8 +119,9 @@ func (e *Emitter) Close(ctx context.Context) error { return e.inner.Close(ctx) }
 
 // Receiver consumes CloudEvents from Redpanda.
 type Receiver struct {
-	inner  *consumer.Source
-	buffer []eventflow.Event
+	inner     *consumer.Source
+	buffer    []eventflow.Event
+	ackBuffer []eventflow.ReceivedEvent
 }
 
 // NewReceiver constructs a Redpanda receiver.
@@ -148,6 +149,30 @@ func (r *Receiver) Receive(ctx context.Context) (eventflow.Event, error) {
 	}
 	event := r.buffer[0]
 	r.buffer = r.buffer[1:]
+	return event, nil
+}
+
+// ReceiveAck reads one event and exposes an acknowledgement callback for offset commit.
+func (r *Receiver) ReceiveAck(ctx context.Context) (eventflow.ReceivedEvent, error) {
+	if len(r.ackBuffer) == 0 {
+		events, err := r.inner.ReadBatchAck(ctx, 1)
+		if err != nil {
+			return eventflow.ReceivedEvent{}, err
+		}
+		if len(events) == 0 {
+			return eventflow.ReceivedEvent{}, io.EOF
+		}
+		for _, event := range events {
+			commit := event.Commit
+			r.ackBuffer = append(r.ackBuffer, eventflow.ReceivedEvent{
+				Event: event.Event,
+				Ack:   commit,
+				Nack:  func(context.Context) error { return nil },
+			})
+		}
+	}
+	event := r.ackBuffer[0]
+	r.ackBuffer = r.ackBuffer[1:]
 	return event, nil
 }
 

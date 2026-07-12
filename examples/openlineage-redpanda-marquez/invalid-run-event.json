@@ -1,0 +1,7 @@
+{
+  "eventType": "COMPLETE",
+  "eventTime": "2026-07-12T00:00:00Z",
+  "run": {},
+  "job": { "namespace": "eventflow.example" },
+  "producer": "github.com/rezarajan/eventflow/examples/openlineage"
+}

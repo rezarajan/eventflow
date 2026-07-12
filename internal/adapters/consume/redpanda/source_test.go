@@ -34,6 +34,28 @@ func TestSourceReadsCloudEventsAndCommits(t *testing.T) {
 	}
 }
 
+func TestSourceReadBatchAckCommitsOnlyWhenCallbackRuns(t *testing.T) {
+	body := redpandaConsumerEventBody(t, "1", "example.created.v1")
+	reader := &fakeReader{messages: []kafka.Message{{Value: body}}}
+	source := NewWithDependencies(Config{Brokers: []string{"broker:9092"}, Topic: "events", GroupID: "group"}, fakeReaderFactory{reader: reader})
+	if err := source.Open(context.Background()); err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	events, err := source.ReadBatchAck(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ReadBatchAck returned error: %v", err)
+	}
+	if len(events) != 1 || reader.commits != 0 {
+		t.Fatalf("unexpected read result: events=%+v commits=%d", events, reader.commits)
+	}
+	if err := events[0].Commit(context.Background()); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	if reader.commits != 1 {
+		t.Fatalf("commits = %d, want 1", reader.commits)
+	}
+}
+
 // TestSourceRequiresOpenBeforeRead verifies the explicit lifecycle is enforced.
 func TestSourceRequiresOpenBeforeRead(t *testing.T) {
 	source := NewWithDependencies(Config{Brokers: []string{"broker:9092"}, Topic: "events", GroupID: "group"}, fakeReaderFactory{})

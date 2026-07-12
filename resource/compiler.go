@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/journal"
 )
 
 // Graph is the validated dependency graph for a set of resources.
@@ -42,7 +43,11 @@ type BuildContext struct {
 	graph    *Graph
 	objects  map[ResourceKey]any
 	compiled *Compiled
+	current  ResourceKey
 }
+
+// ResourceName returns the metadata.name of the resource currently being built.
+func (b BuildContext) ResourceName() string { return b.current.Name }
 
 // Get returns the built object for ref.
 //
@@ -107,6 +112,19 @@ func (b BuildContext) ObservationMapper(ref Reference) (eventflowObservationMapp
 		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not map observations"))
 	}
 	return mapper, nil
+}
+
+// Journal returns the built resource referenced by ref as a durable journal.
+func (b BuildContext) Journal(ref Reference) (journal.Journal, error) {
+	obj, err := b.Get(ref)
+	if err != nil {
+		return nil, err
+	}
+	j, ok := obj.(journal.Journal)
+	if !ok {
+		return nil, typed(ErrCapabilityMismatch, ref.Key().String(), fmt.Errorf("resource does not journal events"))
+	}
+	return j, nil
 }
 
 type eventflowEmitter interface {
@@ -200,15 +218,25 @@ func Compile(ctx context.Context, catalog *Catalog, docs []Document) (*Compiled,
 	bctx := BuildContext{graph: graph, objects: compiled.Objects, compiled: compiled}
 	for _, key := range graph.order {
 		n := graph.nodes[key]
+		bctx.current = key
 		obj, err := n.def.build(ctx, bctx, n.spec)
 		if err != nil {
 			return nil, typed(ErrValidation, key.String(), fmt.Errorf("build: %w", err))
 		}
 		compiled.Objects[key] = obj
 		if flow, ok := obj.(Flow); ok {
+			if flow.Name == "" {
+				flow.Name = key.Name
+			}
+			if flow.Dispatch.Flow == "" {
+				flow.Dispatch.Flow = flow.Name
+			}
 			compiled.Flows = append(compiled.Flows, flow)
 		}
 		if flow, ok := obj.(ObservationFlow); ok {
+			if flow.Name == "" {
+				flow.Name = key.Name
+			}
 			compiled.ObservationFlows = append(compiled.ObservationFlows, flow)
 		}
 	}

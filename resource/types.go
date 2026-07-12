@@ -168,6 +168,8 @@ const (
 	CapabilityValidator Capability = "validator"
 	// CapabilityCodec marks resources that implement eventflow.Codec.
 	CapabilityCodec Capability = "codec"
+	// CapabilityJournal marks resources that implement a durable event journal.
+	CapabilityJournal Capability = "journal"
 	// CapabilityBatchEmission marks emitters that also implement eventflow.BatchEmitter.
 	CapabilityBatchEmission Capability = "batchEmission"
 	// CapabilityEventContract marks EventContract resources.

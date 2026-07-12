@@ -20,7 +20,7 @@ metadata:
   name: attendance-submitted
 spec:
   type: attendance.submitted.v1
-  payloadSchema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
+  dataSchema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
   requiredExtensions:
     - correlationid
 ---
@@ -30,7 +30,7 @@ metadata:
   name: student-enrolled
 spec:
   type: student.enrolled.v1
-  payloadSchema: ./contracts/events/payloads/student-enrolled.v1.schema.json
+  dataSchema: ./contracts/events/payloads/student-enrolled.v1.schema.json
 ---
 apiVersion: eventflow.dev/v1alpha1
 kind: EventFlow

@@ -4,6 +4,7 @@ config := env_var_or_default("EVENTFLOW_CONFIG", "examples/school/eventflow.yaml
 lineage_file := env_var_or_default("EVENTFLOW_LINEAGE_FILE", "var/eventflow/lineage/openlineage.ndjson")
 marquez_url := env_var_or_default("EVENTFLOW_MARQUEZ_URL", "http://localhost:5000")
 redpanda_topic := env_var_or_default("EVENTFLOW_REDPANDA_TOPIC", "school.events.v1")
+openlineage_topic := env_var_or_default("EVENTFLOW_OPENLINEAGE_TOPIC", "openlineage.events.v1")
 
 default:
     @just --list
@@ -88,3 +89,19 @@ demo-http:
 quickstart:
     just validate {{config}}
     just inspect {{config}}
+
+# Validate the OpenLineage gateway and worker manifests.
+openlineage-validate:
+    GOCACHE=${GOCACHE:-/tmp/eventflow-go-build-cache} go run ./cmd/eventflow validate --config examples/openlineage-redpanda-marquez/ingress.yaml
+    GOCACHE=${GOCACHE:-/tmp/eventflow-go-build-cache} go run ./cmd/eventflow validate --config examples/openlineage-redpanda-marquez/worker.yaml
+
+# Prepare local infrastructure for the OpenLineage demo.
+openlineage-up:
+    just up-all
+    just topic {{openlineage_topic}}
+
+# Print the OpenLineage demo commands.
+openlineage-demo:
+    @printf 'Terminal 1: go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/ingress.yaml\n'
+    @printf 'Terminal 2: go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/worker.yaml\n'
+    @printf 'Post valid: curl -fsS -X POST http://localhost:8080/events -H "content-type: application/json" --data @examples/openlineage-redpanda-marquez/valid-run-event.json\n'

@@ -4,6 +4,10 @@ Eventflow is built around a small set of ports and declarative resources. The
 ports are Go interfaces. The resources are YAML documents that describe which
 components exist and how they are connected.
 
+The production boundary is intentionally narrow: Eventflow validates,
+normalizes, journals, quarantines, dispatches and replays CloudEvents. It is not
+a workflow engine, stream processor, broker provisioner or data catalog.
+
 ## Core Model
 
 An Eventflow system has four layers:
@@ -119,7 +123,7 @@ spec:
   type: attendance.submitted.v1
   sourceRegex: '^urn:school:'
   dataContentType: application/json
-  payloadSchema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
+  dataSchema: ./contracts/events/payloads/attendance-submitted.v1.schema.json
   requiredExtensions:
     - correlationid
   validationMode: strict
@@ -134,7 +138,7 @@ Important fields:
 | `sourceRegex` | Regex constraint for CloudEvents `source`. |
 | `subject` | Exact required CloudEvents `subject`. |
 | `dataContentType` | Required CloudEvents data content type. |
-| `payloadSchema` | Domain payload schema reference. |
+| `dataSchema` | Domain payload schema reference. |
 | `requiredExtensions` | CloudEvents extension names that must be present. |
 | `validationMode` | `strict`, `compatible`, `permissive`, or `disabled`. |
 
@@ -283,10 +287,10 @@ as contract fields.
 
 ## Invalid Event Routing
 
-Use `invalidEventRef` to send invalid mapped events to a separate emitter:
+Use `invalidEmitterRef` to send invalid mapped events to a separate emitter:
 
 ```yaml
-invalidEventRef:
+invalidEmitterRef:
   kind: FilesystemEmitter
   name: rejected-events
 ```
@@ -308,7 +312,7 @@ metadata:
 spec:
   type: grade.recorded.v1
   dataContentType: application/json
-  payloadSchema: ./contracts/events/payloads/grade-recorded.v1.schema.json
+  dataSchema: ./contracts/events/payloads/grade-recorded.v1.schema.json
 ```
 
 4. Add the contract to an `EventFlow.contractRefs` list.

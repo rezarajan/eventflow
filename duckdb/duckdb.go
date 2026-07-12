@@ -16,18 +16,15 @@ type Config struct {
 	RawTable string
 }
 
-// ResourceSpec is the declarative spec shared by DuckDBEmitter and DuckDBReceiver.
-//
-// DuckDBEmitter is implemented. DuckDBReceiver is registered so manifests fail
-// with an explicit build error instead of an unknown-kind error.
+// ResourceSpec is the declarative spec for DuckDBEmitter.
 type ResourceSpec struct {
 	Path     string `yaml:"path" json:"path"`
 	RawTable string `yaml:"rawTable,omitempty" json:"rawTable,omitempty"`
 }
 
-// Register adds DuckDB resource definitions.
+// Register adds DuckDBEmitter as an optional analytical/raw export adapter.
 func Register(catalog *resource.Catalog) error {
-	if err := resource.Register(catalog, resource.Definition[ResourceSpec]{
+	return resource.Register(catalog, resource.Definition[ResourceSpec]{
 		GVK: resource.GVK("DuckDBEmitter"),
 		Default: func(spec *ResourceSpec) error {
 			if spec.Path == "" {
@@ -39,15 +36,6 @@ func Register(catalog *resource.Catalog) error {
 			return NewEmitter(Config{Path: spec.Path, RawTable: spec.RawTable}), nil
 		},
 		Capabilities: []resource.Capability{resource.CapabilityComponent, resource.CapabilityEmitter, resource.CapabilityBatchEmission},
-	}); err != nil {
-		return err
-	}
-	return resource.Register(catalog, resource.Definition[ResourceSpec]{
-		GVK: resource.GVK("DuckDBReceiver"),
-		Build: func(context.Context, resource.BuildContext, ResourceSpec) (any, error) {
-			return nil, fmt.Errorf("DuckDBReceiver is not implemented by the current DuckDB adapter")
-		},
-		Capabilities: []resource.Capability{resource.CapabilityComponent},
 	})
 }
 

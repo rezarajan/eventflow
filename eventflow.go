@@ -12,6 +12,7 @@ import (
 	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
+	"github.com/rezarajan/eventflow/observability/metrics"
 )
 
 // Event is the canonical in-memory Eventflow event representation.
@@ -111,6 +112,20 @@ type Receiver interface {
 	Close(ctx context.Context) error
 }
 
+// ReceivedEvent is an event with source acknowledgement callbacks.
+type ReceivedEvent struct {
+	Event Event
+	Ack   func(context.Context) error
+	Nack  func(context.Context) error
+}
+
+// AckReceiver reads events whose source acknowledgement must be controlled by the runtime.
+type AckReceiver interface {
+	Open(ctx context.Context) error
+	ReceiveAck(ctx context.Context) (ReceivedEvent, error)
+	Close(ctx context.Context) error
+}
+
 // BatchReceiver reads bounded event batches.
 type BatchReceiver interface {
 	Receiver
@@ -166,10 +181,12 @@ type Closer interface {
 
 // Runtime composes receiver, validator, and handler without transport-specific logic.
 type Runtime struct {
-	Receiver  Receiver
-	Validator Validator
-	Handler   EventHandler
-	Mode      ValidationMode
+	Receiver       Receiver
+	Validator      Validator
+	Handler        EventHandler
+	InvalidHandler EventHandler
+	AcceptInvalid  bool
+	Mode           ValidationMode
 }
 
 // Run receives events until EOF, cancellation, or handler failure.
@@ -189,22 +206,62 @@ func (r Runtime) Run(ctx context.Context) error {
 	}
 	defer r.Receiver.Close(ctx)
 	for {
-		evt, err := r.Receiver.Receive(ctx)
+		received, err := receiveOne(ctx, r.Receiver)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
+		evt := received.Event
+		metrics.Inc("eventflow_events_received_total", nil)
 		if r.Validator != nil {
 			if err := r.Validator.Validate(ctx, evt, mode); err != nil {
+				metrics.Inc("eventflow_events_rejected_total", map[string]string{"result": "validation"})
+				if r.InvalidHandler != nil {
+					if emitErr := r.InvalidHandler.Handle(ctx, evt); emitErr != nil {
+						return emitErr
+					}
+					metrics.Inc("eventflow_events_quarantined_total", nil)
+					if r.AcceptInvalid && received.Ack != nil {
+						if ackErr := received.Ack(ctx); ackErr != nil {
+							return ackErr
+						}
+					}
+					if r.AcceptInvalid {
+						continue
+					}
+				}
+				if received.Nack != nil {
+					_ = received.Nack(ctx)
+				}
 				return err
 			}
 		}
 		if err := r.Handler.Handle(ctx, evt); err != nil {
+			if received.Nack != nil {
+				_ = received.Nack(ctx)
+			}
 			return err
 		}
+		metrics.Inc("eventflow_events_accepted_total", nil)
+		if received.Ack != nil {
+			if err := received.Ack(ctx); err != nil {
+				return err
+			}
+		}
 	}
+}
+
+func receiveOne(ctx context.Context, receiver Receiver) (ReceivedEvent, error) {
+	if ackReceiver, ok := receiver.(AckReceiver); ok {
+		return ackReceiver.ReceiveAck(ctx)
+	}
+	event, err := receiver.Receive(ctx)
+	if err != nil {
+		return ReceivedEvent{}, err
+	}
+	return ReceivedEvent{Event: event}, nil
 }
 
 // ObservationRuntime composes an observer, mapper, validator, and handler.

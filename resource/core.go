@@ -2,12 +2,20 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	eventflow "github.com/rezarajan/eventflow"
+	"github.com/rezarajan/eventflow/gateway"
+	"github.com/rezarajan/eventflow/gateway/dispatch"
+	"github.com/rezarajan/eventflow/journal"
 )
 
 // EventContractSpec defines the CloudEvents contract for one event type.
@@ -21,6 +29,7 @@ type EventContractSpec struct {
 	SourceRegex        string            `yaml:"sourceRegex,omitempty" json:"sourceRegex,omitempty"`
 	Subject            string            `yaml:"subject,omitempty" json:"subject,omitempty"`
 	DataContentType    string            `yaml:"dataContentType,omitempty" json:"dataContentType,omitempty"`
+	DataSchema         string            `yaml:"dataSchema,omitempty" json:"dataSchema,omitempty"`
 	PayloadSchema      string            `yaml:"payloadSchema,omitempty" json:"payloadSchema,omitempty"`
 	OpenLineage        map[string]any    `yaml:"openLineage,omitempty" json:"openLineage,omitempty"`
 	RequiredExtensions []string          `yaml:"requiredExtensions,omitempty" json:"requiredExtensions,omitempty"`
@@ -34,14 +43,30 @@ type EventContractSpec struct {
 // eventflow.Receiver. Platform activity sources, such as S3 notifications, use
 // ObservationFlow because they require an observer and mapper before validation.
 type EventFlowSpec struct {
-	ReceiverRef     *Reference  `yaml:"receiverRef,omitempty" json:"receiverRef,omitempty"`
-	ObserverRef     *Reference  `yaml:"observerRef,omitempty" json:"observerRef,omitempty"`
-	ContractRefs    []Reference `yaml:"contractRefs,omitempty" json:"contractRefs,omitempty"`
-	ValidatorRefs   []Reference `yaml:"validatorRefs,omitempty" json:"validatorRefs,omitempty"`
-	CodecRefs       []Reference `yaml:"codecRefs,omitempty" json:"codecRefs,omitempty"`
-	EmitterRefs     []Reference `yaml:"emitterRefs,omitempty" json:"emitterRefs,omitempty"`
-	InvalidEventRef *Reference  `yaml:"invalidEventRef,omitempty" json:"invalidEventRef,omitempty"`
-	Mode            string      `yaml:"mode,omitempty" json:"mode,omitempty"`
+	ReceiverRef       *Reference   `yaml:"receiverRef,omitempty" json:"receiverRef,omitempty"`
+	ObserverRef       *Reference   `yaml:"observerRef,omitempty" json:"observerRef,omitempty"`
+	ContractRefs      []Reference  `yaml:"contractRefs,omitempty" json:"contractRefs,omitempty"`
+	ValidatorRefs     []Reference  `yaml:"validatorRefs,omitempty" json:"validatorRefs,omitempty"`
+	CodecRefs         []Reference  `yaml:"codecRefs,omitempty" json:"codecRefs,omitempty"`
+	JournalRef        *Reference   `yaml:"journalRef,omitempty" json:"journalRef,omitempty"`
+	EmitterRefs       []Reference  `yaml:"emitterRefs,omitempty" json:"emitterRefs,omitempty"`
+	InvalidEmitterRef *Reference   `yaml:"invalidEmitterRef,omitempty" json:"invalidEmitterRef,omitempty"`
+	InvalidEventRef   *Reference   `yaml:"invalidEventRef,omitempty" json:"invalidEventRef,omitempty"`
+	InvalidPolicy     string       `yaml:"invalidPolicy,omitempty" json:"invalidPolicy,omitempty"`
+	Dispatch          DispatchSpec `yaml:"dispatch,omitempty" json:"dispatch,omitempty"`
+	Mode              string       `yaml:"mode,omitempty" json:"mode,omitempty"`
+}
+
+// DispatchSpec configures gateway-owned delivery retry behavior.
+type DispatchSpec struct {
+	MaxAttempts          int    `yaml:"maxAttempts,omitempty" json:"maxAttempts,omitempty"`
+	InitialRetryDelay    string `yaml:"initialRetryDelay,omitempty" json:"initialRetryDelay,omitempty"`
+	MaxRetryDelay        string `yaml:"maxRetryDelay,omitempty" json:"maxRetryDelay,omitempty"`
+	WorkerConcurrency    int    `yaml:"workerConcurrency,omitempty" json:"workerConcurrency,omitempty"`
+	DispatchTimeout      string `yaml:"dispatchTimeout,omitempty" json:"dispatchTimeout,omitempty"`
+	ShutdownDrainTimeout string `yaml:"shutdownDrainTimeout,omitempty" json:"shutdownDrainTimeout,omitempty"`
+	PollInterval         string `yaml:"pollInterval,omitempty" json:"pollInterval,omitempty"`
+	BatchSize            int    `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
 }
 
 // ObservationFlowSpec connects an observer and mapper to contracts and emitters.
@@ -65,6 +90,9 @@ type Flow struct {
 	Runtime        eventflow.Runtime
 	Contracts      []EventContractSpec
 	Emitters       []eventflow.Emitter
+	Destinations   []journal.DestinationID
+	Journal        journal.Journal
+	Dispatch       dispatch.Config
 	InvalidEmitter eventflow.Emitter
 }
 
@@ -114,10 +142,19 @@ func RegisterCore(catalog *Catalog) {
 			if len(spec.EmitterRefs) == 0 {
 				return fmt.Errorf("at least one emitterRef is required")
 			}
+			if spec.InvalidEmitterRef != nil && spec.InvalidEventRef != nil {
+				return fmt.Errorf("invalidEmitterRef and invalidEventRef cannot both be set")
+			}
+			if spec.InvalidPolicy != "" && spec.InvalidPolicy != "acceptAndQuarantine" && spec.InvalidPolicy != "reject" {
+				return fmt.Errorf("unsupported invalidPolicy %q", spec.InvalidPolicy)
+			}
 			if spec.Mode != "" {
 				if _, err := validationMode(spec.Mode); err != nil {
 					return err
 				}
+			}
+			if _, err := dispatchConfig("", spec.Dispatch); err != nil {
+				return err
 			}
 			return nil
 		},
@@ -140,19 +177,28 @@ func RegisterCore(catalog *Catalog) {
 				ref.Capability = CapabilityCodec
 				refs = append(refs, ref)
 			}
+			if spec.JournalRef != nil {
+				ref := *spec.JournalRef
+				ref.Capability = CapabilityJournal
+				refs = append(refs, ref)
+			}
 			for _, ref := range spec.EmitterRefs {
 				ref.Capability = CapabilityEmitter
 				refs = append(refs, ref)
 			}
-			if spec.InvalidEventRef != nil {
-				ref := *spec.InvalidEventRef
+			invalidRef := spec.InvalidEmitterRef
+			if invalidRef == nil {
+				invalidRef = spec.InvalidEventRef
+			}
+			if invalidRef != nil {
+				ref := *invalidRef
 				ref.Capability = CapabilityEmitter
 				refs = append(refs, ref)
 			}
 			return refs
 		},
 		Build: func(_ context.Context, bctx BuildContext, spec EventFlowSpec) (any, error) {
-			flow := Flow{Name: "eventflow"}
+			flow := Flow{Name: bctx.ResourceName()}
 			var err error
 			if spec.ReceiverRef != nil {
 				flow.Runtime.Receiver, err = bctx.Receiver(*spec.ReceiverRef)
@@ -173,15 +219,38 @@ func RegisterCore(catalog *Catalog) {
 					return Flow{}, err
 				}
 				flow.Emitters = append(flow.Emitters, emitter)
+				flow.Destinations = append(flow.Destinations, journal.DestinationID(ref.Key().String()))
 			}
-			if spec.InvalidEventRef != nil {
-				flow.InvalidEmitter, err = bctx.Emitter(*spec.InvalidEventRef)
+			if spec.JournalRef != nil {
+				flow.Journal, err = bctx.Journal(*spec.JournalRef)
+				if err != nil {
+					return Flow{}, err
+				}
+				flow.Dispatch, err = dispatchConfig(flow.Name, spec.Dispatch)
+				if err != nil {
+					return Flow{}, err
+				}
+			}
+			invalidRef := spec.InvalidEmitterRef
+			if invalidRef == nil {
+				invalidRef = spec.InvalidEventRef
+			}
+			if invalidRef != nil {
+				flow.InvalidEmitter, err = bctx.Emitter(*invalidRef)
 				if err != nil {
 					return Flow{}, err
 				}
 			}
 			flow.Runtime.Validator = contractValidator{contracts: flow.Contracts}
-			flow.Runtime.Handler = emitterHandler{emitters: flow.Emitters}
+			if flow.Journal != nil {
+				flow.Runtime.Handler = gateway.JournalHandler{Flow: flow.Name, Journal: flow.Journal, Destinations: flow.Destinations}
+			} else {
+				flow.Runtime.Handler = emitterHandler{emitters: flow.Emitters}
+			}
+			if flow.InvalidEmitter != nil {
+				flow.Runtime.InvalidHandler = emitterHandler{emitters: []eventflow.Emitter{flow.InvalidEmitter}}
+				flow.Runtime.AcceptInvalid = spec.InvalidPolicy == "acceptAndQuarantine"
+			}
 			flow.Runtime.Mode, err = validationMode(spec.Mode)
 			if err != nil {
 				return Flow{}, err
@@ -231,7 +300,7 @@ func RegisterCore(catalog *Catalog) {
 			return refs
 		},
 		Build: func(_ context.Context, bctx BuildContext, spec ObservationFlowSpec) (any, error) {
-			flow := ObservationFlow{Name: "observationflow"}
+			flow := ObservationFlow{Name: bctx.ResourceName()}
 			var err error
 			flow.Runtime.Observer, err = bctx.Observer(spec.ObserverRef)
 			if err != nil {
@@ -285,6 +354,51 @@ func validationMode(value string) (eventflow.ValidationMode, error) {
 	default:
 		return "", fmt.Errorf("unsupported validation mode %q", value)
 	}
+}
+
+func dispatchConfig(flow string, spec DispatchSpec) (dispatch.Config, error) {
+	initial, err := optionalDuration("initialRetryDelay", spec.InitialRetryDelay)
+	if err != nil {
+		return dispatch.Config{}, err
+	}
+	maxDelay, err := optionalDuration("maxRetryDelay", spec.MaxRetryDelay)
+	if err != nil {
+		return dispatch.Config{}, err
+	}
+	timeout, err := optionalDuration("dispatchTimeout", spec.DispatchTimeout)
+	if err != nil {
+		return dispatch.Config{}, err
+	}
+	drain, err := optionalDuration("shutdownDrainTimeout", spec.ShutdownDrainTimeout)
+	if err != nil {
+		return dispatch.Config{}, err
+	}
+	poll, err := optionalDuration("pollInterval", spec.PollInterval)
+	if err != nil {
+		return dispatch.Config{}, err
+	}
+	return dispatch.Config{
+		Flow:                 flow,
+		MaxAttempts:          spec.MaxAttempts,
+		InitialRetryDelay:    initial,
+		MaxRetryDelay:        maxDelay,
+		WorkerConcurrency:    spec.WorkerConcurrency,
+		DispatchTimeout:      timeout,
+		ShutdownDrainTimeout: drain,
+		PollInterval:         poll,
+		BatchSize:            spec.BatchSize,
+	}, nil
+}
+
+func optionalDuration(field string, value string) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", field, err)
+	}
+	return duration, nil
 }
 
 type emitterHandler struct{ emitters []eventflow.Emitter }
@@ -346,11 +460,38 @@ func validateContract(contract EventContractSpec, event eventflow.Event, mode ev
 			return eventflow.ValidationError("validate extensions", fmt.Errorf("required extension %q is missing", extension))
 		}
 	}
-	if mode == eventflow.ValidationPermissive || contract.PayloadSchema == "" {
+	schemaPath := contract.DataSchema
+	if schemaPath == "" {
+		schemaPath = contract.PayloadSchema
+	}
+	if mode == eventflow.ValidationPermissive || schemaPath == "" {
 		return nil
 	}
 	if len(event.Data()) == 0 {
 		return eventflow.ValidationError("validate payload", io.ErrUnexpectedEOF)
+	}
+	body, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return eventflow.ValidationError("load payload schema", err)
+	}
+	var schemaDocument any
+	if err := json.Unmarshal(body, &schemaDocument); err != nil {
+		return eventflow.ValidationError("decode payload schema", err)
+	}
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("eventflow-schema.json", schemaDocument); err != nil {
+		return eventflow.ValidationError("compile payload schema", err)
+	}
+	schema, err := compiler.Compile("eventflow-schema.json")
+	if err != nil {
+		return eventflow.ValidationError("compile payload schema", err)
+	}
+	var payload any
+	if err := json.Unmarshal(event.Data(), &payload); err != nil {
+		return eventflow.ValidationError("decode payload", err)
+	}
+	if err := schema.Validate(payload); err != nil {
+		return eventflow.ValidationError("validate payload", err)
 	}
 	return nil
 }

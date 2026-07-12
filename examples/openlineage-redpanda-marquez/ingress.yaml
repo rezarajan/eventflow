@@ -1,0 +1,72 @@
+apiVersion: eventflow.dev/v1alpha1
+kind: HTTPReceiver
+metadata:
+  name: lineage-http
+spec:
+  address: ":8080"
+  path: /events
+  maxBody: 1048576
+  readTimeout: 5s
+  writeTimeout: 30s
+  idleTimeout: 60s
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: SQLiteJournal
+metadata:
+  name: gateway-journal
+spec:
+  path: var/eventflow/openlineage/ingress.sqlite
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: RedpandaEmitter
+metadata:
+  name: lineage-events
+spec:
+  brokers: ["localhost:19092"]
+  topic: openlineage.events.v1
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: FilesystemEmitter
+metadata:
+  name: quarantine
+spec:
+  path: var/eventflow/openlineage/quarantine.ndjson
+  format: ndjson
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: EventContract
+metadata:
+  name: openlineage-run-event
+spec:
+  type: io.openlineage.run-event.v1
+  dataContentType: application/json
+  dataSchema: examples/openlineage-redpanda-marquez/schemas/openlineage-run-event.json
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: EventFlow
+metadata:
+  name: lineage-ingress
+spec:
+  receiverRef:
+    kind: HTTPReceiver
+    name: lineage-http
+  contractRefs:
+    - kind: EventContract
+      name: openlineage-run-event
+  journalRef:
+    kind: SQLiteJournal
+    name: gateway-journal
+  emitterRefs:
+    - kind: RedpandaEmitter
+      name: lineage-events
+  invalidEmitterRef:
+    kind: FilesystemEmitter
+    name: quarantine
+  invalidPolicy: acceptAndQuarantine
+  dispatch:
+    maxAttempts: 5
+    initialRetryDelay: 1s
+    maxRetryDelay: 30s
+    workerConcurrency: 2
+    dispatchTimeout: 15s
+    shutdownDrainTimeout: 20s

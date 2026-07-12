@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "required": ["eventType", "eventTime", "run", "job", "producer"],
+  "properties": {
+    "eventType": { "enum": ["START", "COMPLETE", "FAIL", "ABORT"] },
+    "eventTime": { "type": "string" },
+    "run": {
+      "type": "object",
+      "required": ["runId"],
+      "properties": {
+        "runId": { "type": "string", "minLength": 1 },
+        "facets": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "job": {
+      "type": "object",
+      "required": ["namespace", "name"],
+      "properties": {
+        "namespace": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "inputs": { "type": "array" },
+    "outputs": { "type": "array" },
+    "producer": { "type": "string", "minLength": 1 },
+    "schemaURL": { "type": "string" }
+  },
+  "additionalProperties": true
+}

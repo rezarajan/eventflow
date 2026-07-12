@@ -5,6 +5,7 @@ import (
 	"github.com/rezarajan/eventflow/duckdb"
 	"github.com/rezarajan/eventflow/filesystem"
 	"github.com/rezarajan/eventflow/httpflow"
+	sqlitejournal "github.com/rezarajan/eventflow/journal/sqlite"
 	"github.com/rezarajan/eventflow/lineage"
 	"github.com/rezarajan/eventflow/redpanda"
 	"github.com/rezarajan/eventflow/resource"
@@ -19,6 +20,7 @@ func Register(catalog *resource.Catalog) error {
 	for _, register := range []func(*resource.Catalog) error{
 		filesystem.Register,
 		httpflow.Register,
+		sqlitejournal.Register,
 		redpanda.Register,
 		s3.Register,
 		duckdb.Register,

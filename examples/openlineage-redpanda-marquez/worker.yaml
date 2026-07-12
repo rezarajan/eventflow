@@ -1,0 +1,70 @@
+apiVersion: eventflow.dev/v1alpha1
+kind: RedpandaReceiver
+metadata:
+  name: lineage-topic
+spec:
+  brokers: ["localhost:19092"]
+  topic: openlineage.events.v1
+  groupId: eventflow-openlineage-worker
+  startOffset: first
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: SQLiteJournal
+metadata:
+  name: worker-journal
+spec:
+  path: var/eventflow/openlineage/worker.sqlite
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: HTTPEmitter
+metadata:
+  name: marquez
+spec:
+  url: http://localhost:5000/api/v1/lineage
+  mode: native-openlineage
+  idempotencyHeader: X-Eventflow-Event-Id
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: FilesystemEmitter
+metadata:
+  name: quarantine
+spec:
+  path: var/eventflow/openlineage/worker-quarantine.ndjson
+  format: ndjson
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: EventContract
+metadata:
+  name: openlineage-run-event
+spec:
+  type: io.openlineage.run-event.v1
+  dataContentType: application/json
+  dataSchema: examples/openlineage-redpanda-marquez/schemas/openlineage-run-event.json
+---
+apiVersion: eventflow.dev/v1alpha1
+kind: EventFlow
+metadata:
+  name: lineage-worker
+spec:
+  receiverRef:
+    kind: RedpandaReceiver
+    name: lineage-topic
+  contractRefs:
+    - kind: EventContract
+      name: openlineage-run-event
+  journalRef:
+    kind: SQLiteJournal
+    name: worker-journal
+  emitterRefs:
+    - kind: HTTPEmitter
+      name: marquez
+  invalidEmitterRef:
+    kind: FilesystemEmitter
+    name: quarantine
+  dispatch:
+    maxAttempts: 5
+    initialRetryDelay: 1s
+    maxRetryDelay: 30s
+    workerConcurrency: 2
+    dispatchTimeout: 15s
+    shutdownDrainTimeout: 20s

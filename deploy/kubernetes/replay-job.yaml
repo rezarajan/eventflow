@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eventflow-replay
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: eventflow
+          image: ghcr.io/rezarajan/eventflow:latest
+          args: ["replay", "--config", "/etc/eventflow/resources.yaml", "--destination", "HTTPEmitter/marquez", "--state", "FAILED"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/eventflow
+              readOnly: true
+            - name: journal
+              mountPath: /var/lib/eventflow
+      volumes:
+        - name: config
+          configMap:
+            name: eventflow-config
+        - name: journal
+          persistentVolumeClaim:
+            claimName: eventflow-journal

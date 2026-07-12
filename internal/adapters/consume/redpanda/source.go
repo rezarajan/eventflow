@@ -14,6 +14,12 @@ import (
 	"github.com/rezarajan/eventflow/internal/lineage"
 )
 
+// ReceivedMessage is a decoded CloudEvent with its source commit callback.
+type ReceivedMessage struct {
+	Event  cloudevents.Event
+	Commit func(context.Context) error
+}
+
 // Source consumes CloudEvents from Redpanda.
 type Source struct {
 	config  Config
@@ -67,13 +73,29 @@ func (s *Source) Open(ctx context.Context) error {
 
 // ReadBatch reads up to maxEvents CloudEvents from Redpanda.
 func (s *Source) ReadBatch(ctx context.Context, maxEvents int) ([]cloudevents.Event, error) {
+	received, err := s.ReadBatchAck(ctx, maxEvents)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]cloudevents.Event, 0, len(received))
+	for _, message := range received {
+		if err := message.Commit(ctx); err != nil {
+			return events, fmt.Errorf("commit Redpanda message: %w", err)
+		}
+		events = append(events, message.Event)
+	}
+	return events, nil
+}
+
+// ReadBatchAck reads CloudEvents without committing their source offsets.
+func (s *Source) ReadBatchAck(ctx context.Context, maxEvents int) ([]ReceivedMessage, error) {
 	if s.reader == nil {
 		return nil, fmt.Errorf("redpanda source must be opened before reading")
 	}
 	if maxEvents <= 0 {
 		maxEvents = 100
 	}
-	events := make([]cloudevents.Event, 0, maxEvents)
+	events := make([]ReceivedMessage, 0, maxEvents)
 	for len(events) < maxEvents {
 		message, err := s.reader.FetchMessage(ctx)
 		if err != nil {
@@ -86,10 +108,12 @@ func (s *Source) ReadBatch(ctx context.Context, maxEvents int) ([]cloudevents.Ev
 		if err != nil {
 			return events, err
 		}
-		if err := s.reader.CommitMessages(ctx, message); err != nil {
-			return events, fmt.Errorf("commit Redpanda message: %w", err)
-		}
-		events = append(events, evt)
+		events = append(events, ReceivedMessage{
+			Event: evt,
+			Commit: func(ctx context.Context) error {
+				return s.reader.CommitMessages(ctx, message)
+			},
+		})
 	}
 	return events, nil
 }

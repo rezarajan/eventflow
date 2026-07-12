@@ -1,0 +1,10 @@
+{
+  "eventType": "COMPLETE",
+  "eventTime": "2026-07-12T00:00:00Z",
+  "run": { "runId": "11111111-1111-1111-1111-111111111111" },
+  "job": { "namespace": "eventflow.example", "name": "daily_orders" },
+  "inputs": [{ "namespace": "warehouse", "name": "raw.orders" }],
+  "outputs": [{ "namespace": "warehouse", "name": "mart.daily_orders" }],
+  "producer": "github.com/rezarajan/eventflow/examples/openlineage",
+  "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json"
+}

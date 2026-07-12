@@ -1,321 +1,156 @@
 # Eventflow
 
-Eventflow is a Go SDK and declarative runtime for CloudEvents pipelines. It
-loads `eventflow.dev/v1alpha1` YAML resources, validates their graph, compiles
-them into small Go interfaces, and runs receiver-based event flows or
-observer-based platform activity flows.
+Eventflow is a schema-enforcing CloudEvents gateway for teams that operate shared event or lineage infrastructure.
 
-Module path:
+Use it when events must be validated, normalized, durably recorded, quarantined and replayed before they enter Kafka-compatible brokers or downstream systems such as Marquez.
 
-```go
-github.com/rezarajan/eventflow
+Eventflow is particularly useful when:
+
+- multiple producers publish into shared event infrastructure;
+- consumers require enforceable, versioned contracts;
+- invalid events must be isolated before reaching downstream systems;
+- producers must remain available while a destination is offline;
+- OpenLineage events need reliable transport and replay.
+
+Eventflow is not a workflow engine, stream processor, service mesh, Dapr replacement, infrastructure provisioner, schema registry, data catalog or runtime-semantics reconstruction system.
+
+## Do I need Eventflow?
+
+| Scenario                                                          | Use Eventflow? | Reason                                         |
+| ----------------------------------------------------------------- | -------------: | ---------------------------------------------- |
+| Dagster emits OpenLineage directly to a reliable Marquez endpoint |     Usually no | Direct integration is simpler                  |
+| Marquez outages must not affect Dagster runs                      |            Yes | Journal, retry and replay isolate the producer |
+| Several teams publish into a shared Redpanda topic                |            Yes | Central contract enforcement and quarantine    |
+| One Go service publishes to one Kafka topic                       |     Usually no | Use the CloudEvents SDK and Kafka client directly |
+| Complex joins, windows and aggregations                           |             No | Use a stream processor                         |
+| Reliable multi-step business workflow                             |             No | Use Temporal or another workflow engine        |
+| Existing Dapr application needs governed event admission          |       Possibly | Dapr handles connectivity; Eventflow handles governance and replay |
+
+## Smallest Useful Deployment
+
+The smallest production-shaped deployment is one `eventflow run` process with:
+
+- an ingress receiver such as `HTTPReceiver` or `RedpandaReceiver`;
+- one or more `EventContract` resources;
+- a `SQLiteJournal`;
+- one destination emitter;
+- an invalid-event emitter for quarantine.
+
+Accepted events are acknowledged only after they are decoded, matched to a contract, validated and durably journaled. Delivery to destinations happens after the journal boundary and is at least once.
+
+## OpenLineage
+
+OpenLineage is Eventflow's primary built-in profile. Producers such as Dagster, Spark, dbt and custom jobs remain responsible for producing accurate OpenLineage run events. Eventflow validates, journals, transports, quarantines, retries and replays those events without inventing jobs, datasets, facets or parent-child relationships.
+
+## Dapr
+
+Dapr is optional and complementary. Dapr can provide service invocation, mTLS, service discovery and Pub/Sub plumbing. Eventflow provides the governed boundary: contract validation, durable journal, quarantine, retry and replay. A direct Dagster-to-Eventflow deployment does not require Dapr.
+
+## Quickstart: OpenLineage To Redpanda And Marquez
+
+Start local infrastructure:
+
+```bash
+just up-all
+just topic openlineage.events.v1
 ```
 
-Eventflow does not provide a control plane, API server, reconciler, provisioning
-system, secrets manager, or global adapter registry. Applications and commands
-explicitly register the resource kinds they support.
+Run ingress in one terminal:
 
-## Repository Contents
+```bash
+go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/ingress.yaml
+```
 
-| Path | Purpose |
-| --- | --- |
-| `eventflow.go` | Public SDK ports: `Emitter`, `Receiver`, `Observer`, `ObservationMapper`, `Validator`, `Codec`, and runtimes. |
-| `resource/` | Declarative resource loader, validator, graph builder, and compiler. |
-| `filesystem/` | Filesystem emitter and receiver resources. |
-| `httpflow/` | HTTP emitter and handler component. |
-| `redpanda/` | Redpanda/Kafka emitter and receiver resources. |
-| `s3/` | S3-compatible emitter and notification observer types. |
-| `duckdb/` | DuckDB emitter for Eventflow-owned raw event storage. |
-| `lineage/` | Public OpenLineage helpers and resource wrapper. |
-| `adapters/bundled/` | Convenience registration for bundled resource kinds. |
-| `cmd/eventflow/` | Declarative CLI: `validate`, `inspect`, and `run`. |
-| `cmd/eventflow-*` | Small utility commands for emit, receive, relay, and lineage replay. |
-| `examples/school/` | Example resource config, payload schemas, and SQL DDL. |
-| `CONCEPTS.md` | Core concepts and practical authoring guide. |
-| `docs/extending.md` | SDK guide for adding contracts, flows, adapters, observers, mappers, validators, and codecs. |
+Post a valid OpenLineage run event:
+
+```bash
+curl -fsS -X POST http://localhost:8080/events \
+  -H 'content-type: application/json' \
+  --data @examples/openlineage-redpanda-marquez/valid-run-event.json
+```
+
+Run the delivery worker in another terminal:
+
+```bash
+go run ./cmd/eventflow run --config examples/openlineage-redpanda-marquez/worker.yaml
+```
+
+Replay failed records after a destination outage:
+
+```bash
+go run ./cmd/eventflow replay \
+  --config examples/openlineage-redpanda-marquez/worker.yaml \
+  --destination HTTPEmitter/marquez \
+  --state FAILED
+```
+
+Inspect gateway resources without running them:
+
+```bash
+go run ./cmd/eventflow validate --config examples/openlineage-redpanda-marquez/ingress.yaml
+go run ./cmd/eventflow inspect --config examples/openlineage-redpanda-marquez/ingress.yaml
+```
 
 ## Resource Model
 
-Every resource uses the same envelope:
+Eventflow resources use `eventflow.dev/v1alpha1` YAML. Core resources are `EventContract`, `EventFlow`, `SQLiteJournal`, transport receivers and transport emitters.
 
 ```yaml
-apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemEmitter
-metadata:
-  name: local-output
-spec:
-  path: ./events.ndjson
-  format: ndjson
-```
-
-Core kinds:
-
-| Kind | Purpose |
-| --- | --- |
-| `EventContract` | Declares accepted CloudEvents type/envelope rules and optional payload schema references. |
-| `EventFlow` | Links one receiver, contracts, emitters, and optional invalid-event routing. |
-| `ObservationFlow` | Links one observer, one mapper, contracts, emitters, and optional invalid-event routing. |
-
-Bundled adapter kinds:
-
-| Kind | Notes |
-| --- | --- |
-| `FilesystemEmitter` | Emits to stdout, NDJSON, or one JSON file per event. |
-| `FilesystemReceiver` | Receives from stdin, NDJSON, or one JSON file per event. |
-| `HTTPEmitter` | Emits CloudEvents to an HTTP endpoint. |
-| `HTTPReceiver` | Builds an HTTP handler component for embedding in an app. |
-| `RedpandaEmitter` | Emits to an existing Redpanda/Kafka topic. |
-| `RedpandaReceiver` | Receives from an existing Redpanda/Kafka topic. |
-| `S3Emitter` | Emits to S3-compatible storage with an injected client. |
-| `S3NotificationFileSource` | Reads local/test S3 notification JSON lines. |
-| `S3NotificationObserver` | Converts S3 object notifications into observations. |
-| `S3ObjectCreatedMapper` | Maps S3 observations into CloudEvents for `ObservationFlow`. |
-| `DuckDBEmitter` | Writes events into Eventflow-owned DuckDB raw tables. |
-| `DuckDBReceiver` | Registered placeholder; receiver behavior is not implemented. |
-| `OpenLineageEmitter` | Wraps another emitter for OpenLineage CloudEvents. |
-
-The compiler rejects unknown envelope fields, unknown spec fields, duplicate
-resource identities, missing references, dependency cycles, and capability
-mismatches.
-
-## Quickstart: Filesystem Flow
-
-Create a resource file:
-
-```bash
-cat > /tmp/eventflow-files.yaml <<'YAML'
-apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemReceiver
-metadata:
-  name: local-input
-spec:
-  path: /tmp/eventflow-input.ndjson
-  format: ndjson
----
-apiVersion: eventflow.dev/v1alpha1
-kind: FilesystemEmitter
-metadata:
-  name: local-output
-spec:
-  path: /tmp/eventflow-output.ndjson
-  format: ndjson
----
 apiVersion: eventflow.dev/v1alpha1
 kind: EventContract
 metadata:
-  name: example-created
+  name: openlineage-run-event
 spec:
-  type: example.created.v1
----
-apiVersion: eventflow.dev/v1alpha1
-kind: EventFlow
-metadata:
-  name: local-copy
-spec:
-  receiverRef:
-    kind: FilesystemReceiver
-    name: local-input
-  contractRefs:
-    - kind: EventContract
-      name: example-created
-  emitterRefs:
-    - kind: FilesystemEmitter
-      name: local-output
-YAML
+  type: io.openlineage.run-event.v1
+  dataSchema: ./schemas/openlineage-run-event.json
 ```
-
-Create one structured CloudEvent:
-
-```bash
-cat > /tmp/eventflow-input.ndjson <<'JSON'
-{"specversion":"1.0","id":"quickstart-1","type":"example.created.v1","source":"urn:eventflow:quickstart","datacontenttype":"application/json","data":{"message":"hello"}}
-JSON
-```
-
-Validate, inspect, and run:
-
-```bash
-go run ./cmd/eventflow validate --config /tmp/eventflow-files.yaml
-go run ./cmd/eventflow inspect --config /tmp/eventflow-files.yaml
-go run ./cmd/eventflow run --config /tmp/eventflow-files.yaml
-cat /tmp/eventflow-output.ndjson
-```
-
-## School Example
-
-The school example is now a declarative resource file:
-
-```bash
-go run ./cmd/eventflow validate --config examples/school/eventflow.yaml
-go run ./cmd/eventflow inspect --config examples/school/eventflow.yaml
-```
-
-It includes filesystem resources, `EventContract` definitions, payload schema
-references, and one `EventFlow`.
-
-## Redpanda Example
-
-Start local Redpanda:
-
-```bash
-just up
-just topic school.events.v1
-```
-
-Use `RedpandaReceiver` and `RedpandaEmitter` resources with explicit broker and
-topic settings. Eventflow connects to existing topics; it does not create or
-manage broker infrastructure at runtime.
-
-## S3 Notification Example
-
-S3 notifications are observations first, then mapped to CloudEvents. A local
-notification source can be used for development and tests:
 
 ```yaml
 apiVersion: eventflow.dev/v1alpha1
-kind: S3NotificationFileSource
+kind: EventFlow
 metadata:
-  name: upload-notifications
+  name: lineage-ingress
 spec:
-  path: ./notifications.ndjson
----
-apiVersion: eventflow.dev/v1alpha1
-kind: S3NotificationObserver
-metadata:
-  name: upload-observer
-spec:
-  bucket: school-uploads
-  prefix: incoming/
-  sourceRef:
-    kind: S3NotificationFileSource
-    name: upload-notifications
----
-apiVersion: eventflow.dev/v1alpha1
-kind: S3ObjectCreatedMapper
-metadata:
-  name: upload-event-mapper
-spec:
-  type: document.upload.detected.v1
-  subjectTemplate: s3://{{bucket}}/{{key}}
-  data:
-    includeBucket: true
-    includeKey: true
----
-apiVersion: eventflow.dev/v1alpha1
-kind: ObservationFlow
-metadata:
-  name: uploads-to-events
-spec:
-  observerRef:
-    kind: S3NotificationObserver
-    name: upload-observer
-  mapperRef:
-    kind: S3ObjectCreatedMapper
-    name: upload-event-mapper
+  receiverRef:
+    kind: HTTPReceiver
+    name: lineage-http
+  contractRefs:
+    - kind: EventContract
+      name: openlineage-run-event
+  journalRef:
+    kind: SQLiteJournal
+    name: gateway-journal
   emitterRefs:
-    - kind: FilesystemEmitter
-      name: accepted-uploads
+    - kind: RedpandaEmitter
+      name: lineage-events
+  invalidEmitterRef:
+    kind: FilesystemEmitter
+    name: quarantine
 ```
 
-See [CONCEPTS.md](CONCEPTS.md) for the full example with contract and emitter
-resources.
-
-## Developer Guides
-
-- [CONCEPTS.md](CONCEPTS.md): core model, manifests, observers, and practical flow authoring.
-- [docs/extending.md](docs/extending.md): SDK extension guide for every supported kind of component.
-- [docs/adapters.md](docs/adapters.md): bundled adapter resource reference.
-- [docs/validation.md](docs/validation.md): validation modes and compiler checks.
-
-## SDK Usage
-
-Direct composition:
-
-```go
-type emitHandler struct {
-	Emitter eventflow.Emitter
-}
-
-func (h emitHandler) Handle(ctx context.Context, event eventflow.Event) error {
-	return h.Emitter.Emit(ctx, event)
-}
-
-receiver := filesystem.NewReceiver(filesystem.Config{Path: "in.ndjson"})
-emitter := filesystem.NewEmitter(filesystem.Config{Path: "out.ndjson"})
-
-runtime := eventflow.Runtime{
-	Receiver: receiver,
-	Handler:  emitHandler{Emitter: emitter},
-}
-```
-
-Declarative composition:
-
-```go
-catalog := resource.NewCatalog()
-_ = filesystem.Register(catalog)
-_ = redpanda.Register(catalog)
-
-docs, err := resource.LoadFiles("eventflow.yaml")
-compiled, err := resource.Compile(context.Background(), catalog, docs)
-_ = compiled
-_ = err
-```
-
-There is no global catalog and no hidden adapter registration.
+The compiler rejects unknown envelope fields, unknown spec fields, duplicate identities, missing references, dependency cycles, capability mismatches and invalid contract references.
 
 ## Commands
 
-Primary declarative command:
-
-```bash
-go run ./cmd/eventflow validate --config eventflow.yaml
-go run ./cmd/eventflow inspect --config eventflow.yaml
-go run ./cmd/eventflow run --config eventflow.yaml
+```text
+eventflow validate --config resources.yaml
+eventflow inspect --config resources.yaml
+eventflow run --config resources.yaml
+eventflow replay --config resources.yaml --destination HTTPEmitter/marquez --state FAILED
 ```
 
-Utility commands:
+Standalone utility commands from earlier versions are deprecated. Use the primary `eventflow` command for validation, inspection, running and replay.
 
-| Command | Purpose |
-| --- | --- |
-| `cmd/eventflow-emit` | Read one structured CloudEvent from stdin and emit it to filesystem or HTTP. |
-| `cmd/eventflow-receive` | Read structured CloudEvents from filesystem/stdin and write them to stdout. |
-| `cmd/eventflow-relay` | Relay events between filesystem paths. |
-| `cmd/eventflow-lineage-replay` | Replay OpenLineage NDJSON to `noop`, file, or Marquez lineage output. |
+## Documentation
 
-Run any command with `-help` for flags.
-
-## Lineage
-
-The public `lineage` package builds OpenLineage run events and wraps them as
-CloudEvents. The replay command can send OpenLineage NDJSON to Marquez:
-
-```bash
-just up-marquez
-
-EVENTFLOW_LINEAGE_OUTPUT=marquez \
-EVENTFLOW_MARQUEZ_URL=http://localhost:5000 \
-go run ./cmd/eventflow-lineage-replay \
-  --file var/eventflow/lineage/openlineage.ndjson
-```
-
-The Compose file exposes Marquez UI at `http://localhost:3000`.
-
-## Learn More
-
-Read [CONCEPTS.md](CONCEPTS.md) for the component model, reference semantics,
-contract authoring, EventFlow authoring, and adapter resource guidance.
-
-## Development
-
-```bash
-go test ./...
-go test -race ./...
-go vet ./...
-```
-
-If the default Go cache is not writable:
-
-```bash
-GOCACHE=/tmp/eventflow-go-build-cache go test ./...
-```
+- [Architecture](docs/architecture.md)
+- [Delivery semantics](docs/delivery-semantics.md)
+- [Contracts](docs/contracts.md)
+- [OpenLineage](docs/openlineage.md)
+- [Operations](docs/operations.md)
+- [Replay](docs/replay.md)
+- [Security](docs/security.md)
+- [Adapters](docs/adapters.md)
+- [Kubernetes](docs/kubernetes.md)
+- [Dapr integration](docs/integrations/dapr.md)
+- [Migration](docs/migration.md)
